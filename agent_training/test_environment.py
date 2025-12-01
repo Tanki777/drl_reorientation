@@ -158,7 +158,9 @@ class SatDynEnv(gym.Env):
         
         # Randomization parameters for robust training
         self.max_initial_angle = 90.0  # degrees - maximum initial attitude error
+        self.min_initial_angle = 0.0  # degrees - minimum initial attitude error
         self.max_initial_angular_velocity = 0.1  # deg/s - maximum initial tumbling rate
+        self.min_initial_angular_velocity = 0.0  # deg/s - minimum initial tumbling rate
         
         # Custom metrics tracking for TensorBoard
         self.initial_error_angle = 0.0
@@ -186,13 +188,13 @@ class SatDynEnv(gym.Env):
 
         self.x_axis = np.array([1, 0, 0]) # For frame rendering
 
-    def _generate_random_quaternion(self, max_angle_deg):
+    def _generate_random_quaternion(self, min_angle_deg, max_angle_deg):
         """Generate a random quaternion representing rotation within max_angle_deg from identity"""
         if max_angle_deg == 0:
             return np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32)
         
-        # Random rotation angle between 0 and max_angle_deg
-        angle = np.random.uniform(0, max_angle_deg * np.pi / 180)
+        # Random rotation angle between min_angle_deg and max_angle_deg
+        angle = np.random.uniform(min_angle_deg * np.pi / 180, max_angle_deg * np.pi / 180)
         
         # Random rotation axis (uniformly distributed on unit sphere)
         axis = np.random.randn(3)
@@ -210,11 +212,21 @@ class SatDynEnv(gym.Env):
             np.random.seed(seed)
         
         # Generate random initial attitude error (0° to max_initial_angle)
-        q_array_initial = self._generate_random_quaternion(self.max_initial_angle)
+        q_array_initial = self._generate_random_quaternion(self.min_initial_angle, self.max_initial_angle)
         
         # Generate random initial angular velocities
+        omega_min_rad = self.min_initial_angular_velocity * np.pi / 180  # Convert to rad/s
         omega_max_rad = self.max_initial_angular_velocity * np.pi / 180  # Convert to rad/s
-        omega_initial = np.random.uniform(-omega_max_rad, omega_max_rad, 3).astype(np.float32)
+        
+        # Generate random magnitudes between min and max
+        omega_magnitude = np.random.uniform(omega_min_rad, omega_max_rad)
+        
+        # Generate random direction (uniformly distributed on unit sphere)
+        omega_direction = np.random.randn(3)
+        omega_direction = omega_direction / np.linalg.norm(omega_direction)
+        
+        # Scale direction by magnitude
+        omega_initial = (omega_magnitude * omega_direction).astype(np.float32)
         
         q0_prev = q_array_initial[0]
         state_ = np.concatenate((q_array_initial, omega_initial))
