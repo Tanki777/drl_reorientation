@@ -5,13 +5,7 @@ import matplotlib.pyplot as plt
 import matplotlib
 matplotlib.use("Agg")  # Use a non-interactive backend for frame rendering
 
-from stable_baselines3.common.callbacks import BaseCallback
-
 import math
-
-import time
-
-import os
 
 from numba import njit
 
@@ -20,40 +14,6 @@ kp = 50
 kd = 500
 
 scale_torque = 2
-
-class CustomCallback(BaseCallback):
-    def __init__(self, check_freq, save_path, verbose=1, total_timesteps_offset=0):
-        super().__init__(verbose)
-        self.check_freq = check_freq
-        self.base_save_path = save_path
-        self.cumulative_reward = 0     # Initialize cumulative reward
-        self.total_timesteps_offset = total_timesteps_offset  # Track total across sessions
-
-    def _on_step(self) -> bool:
-        # Access the immediate reward from locals
-        immediate_reward = self.locals.get('rewards')
-
-        # Update cumulated reward
-        if immediate_reward is not None:
-            self.cumulative_reward += immediate_reward
-
-        if self.n_calls % self.check_freq == 0:
-            # Create a unique model filename using timestamp
-            timestamp = int(time.time())
-
-            # Calculate true total timesteps across all sessions
-            true_total_timesteps = self.num_timesteps + self.total_timesteps_offset
-            unique_model_path = f"{self.base_save_path}_{true_total_timesteps}_{timestamp}"
-
-            # Save the model
-            self.model.save(unique_model_path)
-
-            # Save relevant information with true total timesteps
-            with open("training_logs_numba.txt", "a") as log_file:
-                log_file.write(f"Step: {true_total_timesteps}, Cumulative Reward: {self.cumulative_reward}\n")
-
-            self.cumulative_reward = 0      # Reset cumulative reward after logging
-        return True
 
 
 @njit
@@ -200,6 +160,15 @@ class SatDynEnv(gym.Env):
         self.max_initial_angle = 90.0  # degrees - maximum initial attitude error
         self.max_initial_angular_velocity = 0.1  # deg/s - maximum initial tumbling rate
         
+        # Custom metrics tracking for TensorBoard
+        self.initial_error_angle = 0.0
+        self.initial_angular_velocity_mag = 0.0
+        self.episode_torques = []
+        self.settled = False
+        self.settling_time = -1  # -1 means not settled
+        self.settling_threshold_deg = 2.0  # degrees for considering "settled"
+        self.settling_velocity_threshold = 0.01  # rad/s for angular velocity
+        
         # Set initial state (will be randomized in reset())
         self.reset()
 
@@ -252,6 +221,14 @@ class SatDynEnv(gym.Env):
         self.state = np.concatenate((state_, [q0_prev]))
 
         self.steps = 0
+        
+        # Initialize custom metrics for this episode
+        self.initial_error_angle = 2 * math.acos(abs(q_array_initial[0])) * 180 / np.pi  # degrees
+        self.initial_angular_velocity_mag = np.linalg.norm(omega_initial) * 180 / np.pi  # deg/s
+        self.episode_torques = []
+        self.settled = False
+        self.settling_time = -1
+        
         return self.state, {}
 
     def step(self, action):
@@ -273,19 +250,50 @@ class SatDynEnv(gym.Env):
         self.state[-1] = q0_prev
 
         # Explicitly cast the state to float32 before returning
-        obs = self.state.astype(np.float32)     #
+        obs = self.state.astype(np.float32)
 
         # Calculate reward
         reward = reward_function(self.state)
+        
+        # Track custom metrics
+        applied_torque = action * scale_torque
+        self.episode_torques.append(np.linalg.norm(applied_torque))
+        
+        # Check settling condition
+        current_error_deg = 2 * math.acos(abs(self.state[0])) * 180 / np.pi
+        current_omega_mag = np.linalg.norm(self.state[4:7])
+        
+        if (not self.settled and 
+            current_error_deg < self.settling_threshold_deg and 
+            current_omega_mag < self.settling_velocity_threshold):
+            self.settled = True
+            self.settling_time = self.steps * self.dt  # settling time in seconds
 
         # Check if the maximum number of steps is reached
         self.steps += 1
         done = self.steps >= self.max_steps
-
-        # terminated = self.steps >= self.max_steps
         truncated = False
+        
+        # Prepare info dict with custom metrics
+        info = {}
+        
+        # Add episode-end metrics when episode is done
+        if done:
+            final_error_angle = current_error_deg
+            avg_torque = np.mean(self.episode_torques) if self.episode_torques else 0.0
+            max_torque = np.max(self.episode_torques) if self.episode_torques else 0.0
+            
+            info.update({
+                "custom_metrics/initial_error_angle": self.initial_error_angle,
+                "custom_metrics/initial_angular_velocity": self.initial_angular_velocity_mag,
+                "custom_metrics/final_error_angle": final_error_angle,
+                "custom_metrics/settling_time": self.settling_time,
+                "custom_metrics/avg_torque": avg_torque,
+                "custom_metrics/max_torque": max_torque,
+                "custom_metrics/settled": float(self.settled),
+            })
 
-        return obs, reward, done, truncated, {}
+        return obs, reward, done, truncated, info
 
     def render(self):
         attitude = self.state[:4]
