@@ -139,7 +139,7 @@ class SatDynEnv(gym.Env):
         "render_fps": 30,
     }
 
-    def __init__(self, render_mode=None):
+    def __init__(self, render_mode=None, initial_state=None):
         super(SatDynEnv).__init__()
 
         # Define action space as [torque_x, torque_y, torque_z]  (torques about three body axes)
@@ -157,10 +157,16 @@ class SatDynEnv(gym.Env):
         self.render_mode = render_mode
         
         # Randomization parameters for robust training
-        self.max_initial_angle = 90.0  # degrees - maximum initial attitude error
-        self.min_initial_angle = 0.0  # degrees - minimum initial attitude error
-        self.max_initial_angular_velocity = 0.1  # deg/s - maximum initial tumbling rate
-        self.min_initial_angular_velocity = 0.0  # deg/s - minimum initial tumbling rate
+        if initial_state is None:
+            self.min_initial_angle = 0.0  # degrees - minimum initial attitude error
+            self.max_initial_angle = 90.0  # degrees - maximum initial attitude error
+            self.min_initial_angular_velocity = 0.0  # deg/s - minimum initial tumbling rate
+            self.max_initial_angular_velocity = 0.1  # deg/s - maximum initial tumbling rate
+        else:
+            self.min_initial_angle = initial_state[0]
+            self.max_initial_angle = initial_state[1]
+            self.min_initial_angular_velocity = initial_state[2]
+            self.max_initial_angular_velocity = initial_state[3]
         
         # Custom metrics tracking for TensorBoard
         self.initial_error_angle = 0.0

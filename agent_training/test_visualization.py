@@ -24,11 +24,11 @@ def load_agent(model_name: str):
     return model
 
 
-def create_evaluation_env():
+def create_evaluation_env(initial_state):
     """
     Create the evaluation environment.
     """
-    eval_env = SatDynEnv(render_mode="rgb_array")
+    eval_env = SatDynEnv(render_mode="rgb_array", initial_state=initial_state)
     return eval_env
 
 
@@ -284,7 +284,11 @@ def plot_actual_attitude(simulation_data: dict):
 if __name__ == "__main__":
     model_name = "sac_sat_faster_2_latest"
     model = load_agent(model_name)
-    eval_env = create_evaluation_env()
+
+    # Set initial state for evaluation environment
+    initial_state = [0.0, 90.0, 0.0, 0.1]  # [min_initial_angle, max_initial_angle, min_initial_angular_velocity, max_initial_angular_velocity]
+    eval_env = create_evaluation_env(initial_state)
+
     print_rewards(model, eval_env, n_eval_episodes=10)
     simulation_data = simulate_agent(model, eval_env)
     plot_actual_attitude(simulation_data)
