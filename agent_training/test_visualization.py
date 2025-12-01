@@ -116,12 +116,12 @@ def simulate_agent(model: SAC, eval_env: SatDynEnv):
 
 def print_result(phi_final, omega_final, cumulative_reward_final):
 
-    print(f"Final rotation angle φ: {phi_final:.6f}°")
+    print(f"Final rotation angle: {phi_final:.6f}°")
     print(f"Final angular velocity: {np.sqrt(omega_final[0]**2 + omega_final[1]**2 + omega_final[2]**2)*180/np.pi:.6f} deg/s")
     print(f"Total cumulative reward: {cumulative_reward_final:.2f}")
     print(f"Target accuracy: 2.0°")
-    print(f"Attitude control: {'✓ SUCCESS' if phi_final < 2.0 else '✗ NOT CONVERGED'}")
-    print(f"Velocity settling: {'✓ SUCCESS' if np.sqrt(omega_final[0]**2 + omega_final[1]**2 + omega_final[2]**2)*180/np.pi < 0.5 else '✗ NOT SETTLED'}")
+    print(f"Attitude control: {"SUCCESS" if phi_final < 2.0 else "NOT CONVERGED"}")
+    print(f"Velocity settling: {"SUCCESS" if np.sqrt(omega_final[0]**2 + omega_final[1]**2 + omega_final[2]**2)*180/np.pi < 0.5 else "NOT SETTLED"}")
 
 def plot_actual_attitude(simulation_data: dict):
     """Plot the ACTUAL satellite attitude trajectory based on rotation axis and angle phi"""
@@ -189,16 +189,16 @@ def plot_actual_attitude(simulation_data: dict):
     # Convert to numpy array for proper indexing
     body_axis_arr = np.array(body_axis_arr)
     
-    fig = plt.figure(figsize=(18, 12))  # Larger figure for 6 subplots
+    fig = plt.figure(figsize=(18, 12))
     
     # 3D Rotation Axis Trajectory (This is the key trajectory for phi angle!)
-    ax1 = fig.add_subplot(231, projection='3d')  # Changed to 2x3 grid
+    ax1 = fig.add_subplot(231, projection="3d")
     
     # Plot trajectory on unit sphere (rotation axes are unit vectors)
-    ax1.plot(body_axis_arr[:, 0], body_axis_arr[:, 1], body_axis_arr[:, 2], 'b-', alpha=0.7, linewidth=3, label='Boresight Axis Trajectory')
-    ax1.scatter(body_axis_arr[0, 0], body_axis_arr[0, 1], body_axis_arr[0, 2], color='green', s=100, label='Start')
-    ax1.scatter(body_axis_arr[-1, 0], body_axis_arr[-1, 1], body_axis_arr[-1, 2], color='red', s=100, label='End')
-    ax1.scatter(1, 0, 0, color='gold', s=150, marker='*', label='Target')
+    ax1.plot(body_axis_arr[:, 0], body_axis_arr[:, 1], body_axis_arr[:, 2], "b-", alpha=0.7, linewidth=3, label="Boresight Axis Trajectory")
+    ax1.scatter(body_axis_arr[0, 0], body_axis_arr[0, 1], body_axis_arr[0, 2], color="green", s=100, label="Start")
+    ax1.scatter(body_axis_arr[-1, 0], body_axis_arr[-1, 1], body_axis_arr[-1, 2], color="red", s=100, label="End")
+    ax1.scatter(1, 0, 0, color="gold", s=150, marker="*", label="Target")
     
     # Draw unit sphere wireframe
     u = np.linspace(0, 2 * np.pi, 20)
@@ -206,71 +206,69 @@ def plot_actual_attitude(simulation_data: dict):
     sphere_x = np.outer(np.cos(u), np.sin(v))
     sphere_y = np.outer(np.sin(u), np.sin(v))
     sphere_z = np.outer(np.ones(np.size(u)), np.cos(v))
-    ax1.plot_wireframe(sphere_x, sphere_y, sphere_z, alpha=0.1, color='gray')
+    ax1.plot_wireframe(sphere_x, sphere_y, sphere_z, alpha=0.1, color="gray")
     
     ax1.set_xlim([-1.1, 1.1])
     ax1.set_ylim([-1.1, 1.1])
     ax1.set_zlim([-1.1, 1.1])
-    ax1.set_xlabel('X')
-    ax1.set_ylabel('Y')
-    ax1.set_zlabel('Z')
-    ax1.set_title('3D Boresight Trajectory on Unit Sphere')
+    ax1.set_xlabel("X")
+    ax1.set_ylabel("Y")
+    ax1.set_zlabel("Z")
+    ax1.set_title("3D Boresight Trajectory on Unit Sphere")
     ax1.legend()
     
     # Rotation angle φ vs time (same as in reward function)
-    ax2 = fig.add_subplot(232)  # Changed to 2x3 grid
-    ax2.plot(times[:len(rotation_angles_deg)], rotation_angles_deg, 'purple', linewidth=3, label='Angle φ')
-    ax2.axhline(y=2.0, color='r', linestyle='--', linewidth=2, label='Target (2.0°)')
-    ax2.set_xlabel('Time (s)')
-    ax2.set_ylabel('Rotation Angle φ (°)')
-    ax2.set_title('Rotation Angle φ vs Time\n(Used in reward function)')
+    ax2 = fig.add_subplot(232)
+    ax2.plot(times[:len(rotation_angles_deg)], rotation_angles_deg, "purple", linewidth=3, label="Angle $\\phi$")
+    ax2.axhline(y=2.0, color="r", linestyle="--", linewidth=2, label="Target (2.0°)")
+    ax2.set_xlabel("Time (s)")
+    ax2.set_ylabel("Rotation Angle $\\phi$ (°)")
+    ax2.set_title("Rotation Angle $\\phi$ vs Time\n(Used in reward function)")
     ax2.grid(True)
     ax2.legend()
-    ax2.set_yscale('log')
+    ax2.set_yscale("log")
     
     # Cumulative Reward vs Time
-    ax5 = fig.add_subplot(233)  # New subplot for cumulative reward
-    ax5.plot(times[:len(cumulative_rewards)], cumulative_rewards, 'orange', linewidth=3, label='Cumulative Reward')
-    ax5.plot(times[:len(rewards_array)], rewards_array, 'lightcoral', alpha=0.6, linewidth=1, label='Step Reward')
-    ax5.set_xlabel('Time (s)')
-    ax5.set_ylabel('Reward')
-    ax5.set_title('Reward Evolution')
-    ax5.grid(True)
-    ax5.legend()
+    ax3 = fig.add_subplot(233)  # New subplot for cumulative reward
+    ax3.plot(times[:len(cumulative_rewards)], cumulative_rewards, "orange", linewidth=3, label="Cumulative Reward")
+    ax3.plot(times[:len(rewards_array)], rewards_array, "lightcoral", alpha=0.6, linewidth=1, label="Step Reward")
+    ax3.set_xlabel("Time (s)")
+    ax3.set_ylabel("Reward")
+    ax3.set_title("Reward Evolution")
+    ax3.grid(True)
+    ax3.legend()
     
     # Plot quaternion
-    plt.subplot(3, 2, 4)
-    plt.plot(times, q_0, label='$q_0$')
-    plt.plot(times, q_1, label='$q_1$')
-    plt.plot(times, q_2, label='$q_2$')
-    plt.plot(times, q_3, label='$q_3$')
-    plt.plot(times, norm_q, label='norm')
-
-    plt.title('Attitude')
-    plt.ylabel('Quaternion')
-    plt.legend()
-    plt.grid()
+    ax4 = fig.add_subplot(234)
+    ax4.plot(times, q_0, label="$q_0$")
+    ax4.plot(times, q_1, label="$q_1$")
+    ax4.plot(times, q_2, label="$q_2$")
+    ax4.plot(times, q_3, label="$q_3$")
+    ax4.plot(times, norm_q, label="norm")
+    ax4.set_title("Attitude")
+    ax4.set_ylabel("Quaternion")
+    ax4.legend()
+    ax4.grid()
 
     # Plot angular velocity
-    plt.subplot(3, 2, 5)
-    plt.plot(times, omega_x * (180 / np.pi), label='$\\omega_x$')
-    plt.plot(times, omega_y * (180 / np.pi), label='$\\omega_y$')
-    plt.plot(times, omega_z * (180 / np.pi), label='$\\omega_z$')
-    plt.title('Angular velocity')
-    plt.ylabel('$\\omega$ (deg/s)')
-    plt.legend()
-    plt.grid()
-
+    ax5 = fig.add_subplot(235)
+    ax5.plot(times, omega_x * (180 / np.pi), label="$\\omega_x$")
+    ax5.plot(times, omega_y * (180 / np.pi), label="$\\omega_y$")
+    ax5.plot(times, omega_z * (180 / np.pi), label="$\\omega_z$")
+    ax5.set_title("Angular velocity")
+    ax5.set_ylabel("$\\omega$ (deg/s)")
+    ax5.legend()
+    ax5.grid()
     # Plot torque input
-    plt.subplot(3, 2, 6)
-    plt.plot(times, torques_array[:, 0], label='$\\tau_x$')
-    plt.plot(times, torques_array[:, 1], label='$\\tau_y$')
-    plt.plot(times, torques_array[:, 2], label='$\\tau_z$')
-    plt.title('Control torques')
-    plt.xlabel('Time (s)')
-    plt.ylabel('$\\tau$ (Nm)')
-    plt.legend()
-    plt.grid()
+    ax6 = fig.add_subplot(236)
+    ax6.plot(times, torques_array[:, 0], label="$\\tau_x$")
+    ax6.plot(times, torques_array[:, 1], label="$\\tau_y$")
+    ax6.plot(times, torques_array[:, 2], label="$\\tau_z$")
+    ax6.set_title("Control torques")
+    ax6.set_xlabel("Time (s)")
+    ax6.set_ylabel("$\\tau$ (Nm)")
+    ax6.legend()
+    ax6.grid()
     
     plt.tight_layout()
     plt.show()
