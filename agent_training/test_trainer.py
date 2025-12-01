@@ -1,7 +1,7 @@
 import os
 import time
 from stable_baselines3 import SAC
-from stable_baselines3.common.vec_env import SubprocVecEnv, VecMonitor
+from stable_baselines3.common.vec_env import VecMonitor
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.callbacks import BaseCallback
 from test_environment import SatDynEnv
@@ -160,6 +160,7 @@ if __name__ == "__main__":
     CONTINUE_TRAINING = True  # Set to True to load existing model, False for fresh start
     MODEL_NAME = "sac_sat_faster_2"  # Base name for saved models
     TRAINING_TIMESTEPS = 20_000  # Number of timesteps per training session
+    CHECK_FREQ = 1_000  # Frequency of callback checks
 
     # Ensure the directory exists
     if not os.path.exists(models_path):
@@ -196,7 +197,7 @@ if __name__ == "__main__":
         net_arch=dict(pi=[512, 512], qf=[512, 512])), verbose=1, device='cuda',
                     tensorboard_log=log_path)  # Use absolute path for consistency
         
-    custom_callback = CustomCallback(check_freq=1000)
+    custom_callback = CustomCallback(check_freq=CHECK_FREQ)
     
     # Monitor training progress in TensorBoard
     tensorboard_process = start_tensorboard()

@@ -280,12 +280,12 @@ def plot_actual_attitude(simulation_data: dict):
 
 ### MAIN ###
 if __name__ == "__main__":
-    model_name = "sac_sat_faster_2_latest"
-    model = load_agent(model_name)
+    MODEL_NAME = "sac_sat_faster_2_latest"
+    model = load_agent(MODEL_NAME)
 
     # Set initial state for evaluation environment
-    initial_state = [0.0, 90.0, 0.0, 0.1]  # [min_initial_angle, max_initial_angle, min_initial_angular_velocity, max_initial_angular_velocity]
-    eval_env = create_evaluation_env(initial_state)
+    INITIAL_STATE = [0.0, 90.0, 0.0, 0.1]  # [min_initial_angle, max_initial_angle, min_initial_angular_velocity, max_initial_angular_velocity]
+    eval_env = create_evaluation_env(INITIAL_STATE)
 
     print_rewards(model, eval_env, n_eval_episodes=10)
     simulation_data = simulate_agent(model, eval_env)
