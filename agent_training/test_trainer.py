@@ -202,6 +202,18 @@ def create_environment():
 
 
 def create_or_load_model(env, continue_training, model_name, log_path):
+    """
+    Create a new SAC model or load an existing one depending on continue_training.
+    Args:
+        env: The training environment
+        continue_training: Boolean indicating whether to continue training from an existing model
+        model_name: Name of the model file
+        log_path: Path for tensorboard logs
+    Returns:
+        model: The created or loaded SAC model
+        save_path: Path where the model will be saved
+        latest_model_path: Path to the latest saved model
+    """
     # Ensure the directory exists
     if not os.path.exists(models_path):
         os.makedirs(models_path)
@@ -242,6 +254,18 @@ def create_or_load_model(env, continue_training, model_name, log_path):
 
 
 def train_agent(model, save_path, total_timesteps, check_freq, save_interval, model_name):
+    """
+    Train the agent model with custom callback for logging and saving.
+    Args:
+        model: The SAC model to train
+        save_path: Base path to save the model
+        total_timesteps: Number of timesteps to train
+        check_freq: Frequency of callback checks
+        save_interval: Interval of timesteps to save the model
+        model_name: Name of the model for tensorboard logging
+    Returns:
+        model: The trained SAC model
+    """
     custom_callback = CustomCallback(check_freq=check_freq, save_interval=save_interval, base_save_path=save_path)
 
     print("|")
@@ -265,6 +289,13 @@ def train_agent(model, save_path, total_timesteps, check_freq, save_interval, mo
 
 
 def save_model(model, save_path, latest_model_path):
+    """
+    Save the trained model.
+    Args:
+        model: The trained SAC model
+        save_path: Base path to save the model
+        latest_model_path: Path to the latest saved model
+    """
     # Save the updated model
     print("|")
     print(f"|---{YELLOW_START}Saving improved model...{COLOR_END}")
