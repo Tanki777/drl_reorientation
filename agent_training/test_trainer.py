@@ -163,7 +163,7 @@ def stop_tensorboard(process):
             print(f"|-----{RED_START}Error stopping TensorBoard: {e}{COLOR_END}")
 
 
-def create_environment():
+def create_environment(initial_state=None):
     """
     Create the training environment
     Returns:
@@ -178,7 +178,11 @@ def create_environment():
         os.makedirs(monitor_dir)
 
     # Create vectorized environment with 8 parallel instances
-    env = make_vec_env(SatDynEnv, n_envs=8)
+    if initial_state is not None:
+        # Need to use a lambda to pass initial_state parameter
+        env = make_vec_env(lambda: SatDynEnv(initial_state=initial_state), n_envs=8)
+    else:
+        env = make_vec_env(SatDynEnv, n_envs=8)
     
     # Add timestamp to monitor file to prevent overwriting previous runs
     timestamp = int(time.time())
