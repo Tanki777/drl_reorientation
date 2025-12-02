@@ -25,10 +25,11 @@ if not os.path.exists(log_path):
 models_path = os.path.join(repo_parent_dir, "models")
 
 class CustomCallback(BaseCallback):
-    def __init__(self, check_freq, verbose=1):
+    def __init__(self, check_freq, save_interval, base_save_path, verbose=1):
         super().__init__(verbose)
         self.check_freq = check_freq
-        self.env_interactions = 0  # Track total environment interactions
+        self.save_interval = save_interval
+        self.base_save_path = base_save_path
         
         # Custom metrics accumulators
         self.custom_metrics = {
@@ -76,6 +77,15 @@ class CustomCallback(BaseCallback):
         # Log metrics periodically
         if self.n_calls % self.check_freq == 0:
             self._log_custom_metrics()
+
+        # Save model every save_interval total timesteps
+        if self.num_timesteps % self.save_interval == 0:
+            # Create a unique model filename using timestamp
+            timestamp = int(time.time())
+            unique_model_path = f"{self.base_save_path}_{self.num_timesteps}_{timestamp}"
+
+            # Save the model
+            self.model.save(unique_model_path)
             
         return True
     
@@ -231,8 +241,8 @@ def create_or_load_model(env, continue_training, model_name, log_path):
     return model, save_path, latest_model_path
 
 
-def train_agent(model, total_timesteps, check_freq, model_name):
-    custom_callback = CustomCallback(check_freq=check_freq)
+def train_agent(model, save_path, total_timesteps, check_freq, save_interval, model_name):
+    custom_callback = CustomCallback(check_freq=check_freq, save_interval=save_interval, base_save_path=save_path)
 
     print("|")
     print(f"|---{YELLOW_START}Start training the agent...{COLOR_END}")
@@ -277,7 +287,8 @@ if __name__ == "__main__":
     CONTINUE_TRAINING = True  # Set to True to load existing model, False for fresh start
     MODEL_NAME = "sac_sat_faster_2"  # Base name for saved models
     TRAINING_TIMESTEPS = 10_000  # Number of timesteps per training session
-    CHECK_FREQ = 1_000  # Frequency of callback checks
+    CHECK_FREQ = 1_000  # Frequency of callback checks every CHECK_FREQ timesteps
+    SAVE_INTERVAL = 200_000  # Model backup saved after every SAVE_INTERVAL timesteps
 
     # Create the training environment
     env = create_environment()
@@ -289,7 +300,7 @@ if __name__ == "__main__":
     tensorboard_process = start_tensorboard()
     
     # Train the agent model
-    model = train_agent(model, TRAINING_TIMESTEPS, CHECK_FREQ, MODEL_NAME)
+    model = train_agent(model, save_path, TRAINING_TIMESTEPS, CHECK_FREQ, SAVE_INTERVAL, MODEL_NAME)
 
     # Save the trained model
     save_model(model, save_path, latest_model_path)

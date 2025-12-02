@@ -37,6 +37,7 @@ After using the trainer for the first time, it should look like this:
 - TensorBoard server for log charts
 - Vectorized environment (eight parallel environments) for more efficient training
 - Log monitor for custom TensorBoard metrics
+- Automatic model backups
 - Training workflow
 #### Usage:
 - Parameters:
@@ -44,6 +45,7 @@ After using the trainer for the first time, it should look like this:
     - Set ``CONTINUE_TRAINING`` to ``False`` to create a new model with the given name and train it from scratch. Set it to ``True`` to instead load the latest model file with the given name to train it further. When set to ``True`` but the model file cannot be found, a new model with that name will be created and trained from scratch.
     - Set ``TRAINING_TIMESTEPS`` to an integer value. It defines how many timesteps the model will be trained when running the trainer. 1000 timesteps are equivalent to one episode in this setup.
     - Set ``CHECK_FREQ`` to an integer value. It defines after how many timesteps the custom callback function will log the custom TensorBoard metrics. Note that, since we use a vectorized environment with eight instances, a ``CHECK_FREQ`` of 1000 leads to logging after every 8000 timesteps. So, if ``CHECK_FREQ`` is set higher than 1/8 of ``TRAINING_TIMESTEPS``, TensorBoard will not log the custom metrics.
+    - Set ``SAVE_INTERVAL`` to an integer value. It defines after how many total timesteps the model will be saved as a backup. This corresponds to the ``TRAINING_TIMESTEPS`` and is therefore not affected by the number of environments. Note that this interval follows the total timesteps tracked by the model. E.g. if a model starts training at 150,000 timesteps and ``TRAINING_TIMESTEPS`` is set to 100,000, a backup will be made at model timestep 200,000 if ``SAVE_INTERVAL`` is set to 100,000.
 - Training:
     - During training, a progress bar will indicate how long the current training session is running and when it will be done.
     - After training, the model will be saved in ``models/MODEL_NAME_latest.zip`` where ``_latest`` is added as a suffix and automatically added when loading the model. Additionally, a backup model is saved to ``models/MODEL_NAME_TOTAL_TIMESTEPS_TIMESTAMP.zip``.
