@@ -11,14 +11,16 @@ Initially, your directory structure should look like this:
     ├───agent_simulation
     └───agent_training
 ````
-After using the trainer for the first time, it should look like this:
+After using the trainer for the first time, it should look like this (``models_meta`` and ``schedules`` only appear after using the auto trainer for the first time):
 ````
 ├───drl_reorientation
 │   ├───agent_simulation
 │   └───agent_training
 ├───models
+├───models_meta
 ├───monitor_logs
-└───tensorboard
+├───tensorboard
+└───schedules
 ````
 
 ## Agent Training
@@ -54,6 +56,56 @@ After using the trainer for the first time, it should look like this:
     - The UI will show all log folders located in the TensorBoard log directory.
     - When the training session is done, the TensorBoard server remains open until closed by pressing ``Ctrl+C`` in the terminal.
 
+### Auto Trainer
+#### Content:
+- Automate agent training according to a predefined schedule
+#### Usage:
+- Parameters:
+    - Set ``SCHEDULE_FILE_NAME`` to the name of the schedule to use. Must end with ``.json``
+    - Set ``CONTINUE_TRAINING`` to ``False`` to create a new model and train it from scratch using the schedule. If set to ``True``, an already existing model can be loaded to continue training. Note that this only works if the model was previously trained with the auto trainer (according to a schedule) and that the same schedule must be used for a model. If not adhering, the model will not be representative anymore for comparison.
+    - Set ``MODEL_NAME`` to the name of the model to be trained. Omit the file ending (i.e. .zip). Note that the suffix ``_latest`` is automatically used when loading the model, so do not include it in ``MODEL_NAME``.
+- Schedule:
+    - A schedule is a JSON file and defines different training phases. Each phase can have its own amount of training timesteps and initial state.
+    - Example:
+    ````json
+    {
+        "name": "schedule 1",
+        "phases": [
+            {
+                "phase_name": "Test Phase 1: Easy",
+                "timesteps": 10000,
+                "min_initial_error_angle": 0.0,
+                "max_initial_error_angle": 30.0,
+                "min_initial_angular_velocity": 0.0,
+                "max_initial_angular_velocity": 0.1
+            },
+            {
+                "phase_name": "Test Phase 1: Medium",
+                "timesteps": 20000,
+                "min_initial_error_angle": 0.0,
+                "max_initial_error_angle": 60.0,
+                "min_initial_angular_velocity": 0.0,
+                "max_initial_angular_velocity": 0.1
+            },
+            {
+                "phase_name": "Test Phase 1: Hard",
+                "timesteps": 30000,
+                "min_initial_error_angle": 0.0,
+                "max_initial_error_angle": 120.0,
+                "min_initial_angular_velocity": 0.0,
+                "max_initial_angular_velocity": 0.1
+            }
+        ]
+    }
+    ````
+- TensorBoard:
+    - When the auto trainer starts, a TensorBoard server is started and can be accessed via http://localhost:6006.
+    - The UI will show all log folders located in the TensorBoard log directory.
+    - When the auto trainer is done, the TensorBoard server remains open until closed by pressing ``Ctrl+C`` in the terminal.
+- Training:
+    - For each phase a separate training session is used.
+    - At the end of each phase, the model is saved (with backup) and the metadata updated.
+    - From the metadata, the auto trainer knows if a phase is already fully or partially completed and skips the phase or trains the remaining timesteps respectively.
 
 ### Visualization
 #### Content:
