@@ -18,7 +18,7 @@ After using the trainer for the first time, it should look like this:
 │   └───agent_training
 ├───models
 ├───monitor_logs
-└───sac_sat_gpu_temp_numba_tensorboard
+└───tensorboard
 ````
 
 ## Agent Training
