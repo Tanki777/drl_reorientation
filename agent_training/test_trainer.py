@@ -1,17 +1,27 @@
 import os
 import time
+import datetime
 from stable_baselines3 import SAC
 from stable_baselines3.common.vec_env import VecMonitor
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.callbacks import BaseCallback
+from stable_baselines3.common.logger import HParam
 from test_environment import SatDynEnv
 import subprocess
+
+# Terminal colors
+RED_START = "\033[91m"
+GREEN_START = "\033[92m"
+YELLOW_START = "\033[93m"
+COLOR_END = "\033[0m"
 
 # Get the log and models path
 parent_dir = os.path.dirname(os.path.abspath(__file__))
 repo_dir = os.path.dirname(parent_dir)
 repo_parent_dir = os.path.dirname(repo_dir)
-log_path = os.path.join(repo_parent_dir, "sac_sat_gpu_temp_numba_tensorboard")
+log_path = os.path.join(repo_parent_dir, "tensorboard")
+if not os.path.exists(log_path):
+    os.makedirs(log_path)
 models_path = os.path.join(repo_parent_dir, "models")
 
 class CustomCallback(BaseCallback):
@@ -30,6 +40,24 @@ class CustomCallback(BaseCallback):
             "max_torque": [],
             "settled": []
         }
+
+    def _on_training_start(self):
+        # Define the metrics that will appear in the `HPARAMS` Tensorboard tab by referencing their tag
+        hparam_dict = {
+                "algorithm": self.model.__class__.__name__,
+                "learning rate": self.model.learning_rate,
+                "tau": self.model.tau,
+                "gamma": self.model.gamma,
+        }
+        
+        # Tensorbaord will find & display metrics from the SCALARS tab
+        metric_dict = {
+            "rollout/ep_len_mean": 0,
+            "train/value_loss": 0.0
+        }
+        
+        
+        self.logger.record("hparams", HParam(hparam_dict, metric_dict), exclude=("stdout", "log", "json", "csv"))
 
     def _on_step(self) -> bool:
         infos = self.locals.get("infos", [])
@@ -70,21 +98,23 @@ class CustomCallback(BaseCallback):
 
 def start_tensorboard():
     """Start TensorBoard server in background, access with http://localhost:6006"""
-    print(f"Looking for TensorBoard logs in: {log_path}")
+    print("|")
+    print(f"|---{YELLOW_START}Looking for TensorBoard logs in: {log_path}{COLOR_END}")
 
     # Check if the log directory exists
     if not os.path.exists(log_path):
-        print(f"Log directory does not exist: {log_path}")
-        print("Available directories:")
+        print(f"|-----{RED_START}Log directory does not exist: {log_path}{COLOR_END}")
+        print(f"|-----{RED_START}Available directories:{COLOR_END}")
         for item in os.listdir(repo_dir):
             item_path = os.path.join(repo_dir, item)
             if os.path.isdir(item_path) and "tensorboard" in item.lower():
-                print(f"{item}")
+                print(f"|-------{RED_START}{item}{COLOR_END}")
     else:
-        print(f"Log directory found: {log_path}")
+        print(f"|-----{GREEN_START}Log directory found: {log_path}{COLOR_END}")
 
     try:
-        print("Starting TensorBoard server...")
+        print("|")
+        print(f"|---{YELLOW_START}Starting TensorBoard server...{COLOR_END}")
         
         # Start TensorBoard process in background
         process = subprocess.Popen([
@@ -94,9 +124,8 @@ def start_tensorboard():
             "--host=localhost"
         ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         
-        print("TensorBoard server starting...")
-        print("Access TensorBoard at: http://localhost:6006")
-        print("Press Ctrl+C to stop the server")
+        print("|-----Access TensorBoard at: http://localhost:6006")
+        print("|-----Press Ctrl+C to stop the server")
         
         # Wait a moment for TensorBoard to start
         time.sleep(3)
@@ -104,29 +133,34 @@ def start_tensorboard():
         return process
     
     except FileNotFoundError:
-        print("TensorBoard not found.")
+        print(f"|-----{RED_START}TensorBoard not found.{COLOR_END}")
 
 
 def stop_tensorboard(process):
     """Stop TensorBoard server"""
     if process is not None:
         try:
-            print("Stopping TensorBoard server...")
+            print(f"|---{YELLOW_START}Stopping TensorBoard server...{COLOR_END}")
             process.terminate()
             process.wait(timeout=5)
-            print("TensorBoard server stopped")
+            print(f"|-----{GREEN_START}TensorBoard server stopped{COLOR_END}")
         except subprocess.TimeoutExpired:
-            print("Force killing TensorBoard server...")
+            print(f"|-----{RED_START}Force killing TensorBoard server...{COLOR_END}")
             process.kill()
             process.wait()
-            print("TensorBoard server force stopped")
+            print(f"|-----{RED_START}TensorBoard server force stopped{COLOR_END}")
         except Exception as e:
-            print(f"Error stopping TensorBoard: {e}")
+            print(f"|-----{RED_START}Error stopping TensorBoard: {e}{COLOR_END}")
 
 
-if __name__ == "__main__":
-
-    print("Creating environment...", end="")
+def create_environment():
+    """
+    Create the training environment
+    Returns:
+        env: The created and wrapped environment
+    """
+    print("--------------------------------------------")
+    print(f"|---{YELLOW_START}Creating environment...{COLOR_END}")
     
     # Create monitor directory for episode logging
     monitor_dir = os.path.join(repo_parent_dir, "monitor_logs")
@@ -153,66 +187,77 @@ if __name__ == "__main__":
     
     # Wrap environment with VecMonitor to log episode info
     env = VecMonitor(env, filename=monitor_log_file, info_keywords=custom_info_keywords)
-    
-    print(" done.")
-   
-    # Training configuration
-    CONTINUE_TRAINING = True  # Set to True to load existing model, False for fresh start
-    MODEL_NAME = "sac_sat_faster_2"  # Base name for saved models
-    TRAINING_TIMESTEPS = 20_000  # Number of timesteps per training session
-    CHECK_FREQ = 1_000  # Frequency of callback checks
 
+    return env
+
+
+def create_or_load_model(env, continue_training, model_name, log_path):
     # Ensure the directory exists
     if not os.path.exists(models_path):
         os.makedirs(models_path)
 
     # Setting the path to save the model
-    save_path = os.path.join(models_path, MODEL_NAME)
-    latest_model_path = os.path.join(models_path, f"{MODEL_NAME}_latest.zip")
+    save_path = os.path.join(models_path, model_name)
+    latest_model_path = os.path.join(models_path, f"{model_name}_latest.zip")
 
-    print("Creating/Loading the agent.")
+    print("|")
+    print(f"|---{YELLOW_START}Creating/Loading the agent...{COLOR_END}")
     
     # Try to load existing model if CONTINUE_TRAINING is True
-    if CONTINUE_TRAINING and os.path.exists(latest_model_path):
-        print(f"Loading existing model from: {latest_model_path}")
+    if continue_training and os.path.exists(latest_model_path):
+        print(f"|-----{YELLOW_START}Loading existing model from: {latest_model_path}{COLOR_END}")
 
         try:
             model = SAC.load(latest_model_path, device='cuda')
             model.set_env(env)
-            print("Successfully loaded existing model!")
-            print(f"Previous total timesteps: {model.num_timesteps}")
+            print(f"|-----{GREEN_START}Successfully loaded existing model!{COLOR_END}")
+            print(f"|-----Previous total timesteps: {model.num_timesteps}")
             
             # Update tensorboard log directory to continue logging
             model.tensorboard_log = log_path
             
         except Exception as e:
-            print(f"Failed to load model: {e}")
-            print("Creating new model instead...")
-            CONTINUE_TRAINING = False
+            print(f"|-----{RED_START}Failed to load model: {e}{COLOR_END}")
+            print(f"|-----{YELLOW_START}Creating new model instead...{COLOR_END}")
+            continue_training = False
     
     # Create new model if not loading existing one
-    if not CONTINUE_TRAINING or not os.path.exists(latest_model_path):
-        print("Creating new model from scratch...")
+    if not continue_training or not os.path.exists(latest_model_path):
+        print(f"|-----{YELLOW_START}Creating new model from scratch...{COLOR_END}")
         model = SAC("MlpPolicy", env, batch_size=2048, gradient_steps=8, policy_kwargs=dict(
         net_arch=dict(pi=[512, 512], qf=[512, 512])), verbose=1, device='cuda',
                     tensorboard_log=log_path)  # Use absolute path for consistency
         
-    custom_callback = CustomCallback(check_freq=CHECK_FREQ)
-    
-    # Monitor training progress in TensorBoard
-    tensorboard_process = start_tensorboard()
-    
-    print("Start training the agent >>> ")
+    return model, save_path, latest_model_path
+
+
+def train_agent(model, total_timesteps, check_freq, model_name):
+    custom_callback = CustomCallback(check_freq=check_freq)
+
+    print("|")
+    print(f"|---{YELLOW_START}Start training the agent...{COLOR_END}")
     start_time = time.time()
     
-    model.learn(total_timesteps=TRAINING_TIMESTEPS, progress_bar=True, callback=custom_callback, tb_log_name="SAC_47", reset_num_timesteps=False)
+    model.learn(total_timesteps=total_timesteps, progress_bar=True, callback=custom_callback, tb_log_name=model_name, reset_num_timesteps=False)
     end_time = time.time()
     
-    print(f"Training time: {end_time - start_time:.2f} seconds")
-    print(f"Current total timesteps: {model.num_timesteps}")
+    # Print training duration in a formatted way
+    training_duration = datetime.timedelta(seconds=end_time - start_time)
+    
+    # Convert timedelta to datetime for formatting
+    duration_datetime = datetime.datetime(1900, 1, 1) + training_duration
+    formatted_duration = duration_datetime.strftime("%H:%M:%S")
 
+    print(f"|-----Training completed in: {formatted_duration}")
+    print(f"|-----Current total timesteps: {model.num_timesteps}")
+
+    return model
+
+
+def save_model(model, save_path, latest_model_path):
     # Save the updated model
-    print("Saving improved model...")
+    print("|")
+    print(f"|---{YELLOW_START}Saving improved model...{COLOR_END}")
     
     # Save with timestamp for history
     timestamp = int(time.time())
@@ -222,12 +267,37 @@ if __name__ == "__main__":
     # Save as latest model (for next session)
     model.save(latest_model_path.replace('.zip', ''))  # Remove .zip as save() adds it
     
-    print(f"Model saved to:")
-    print(f"    Latest: {latest_model_path}")
-    print(f"    Backup: {timestamped_path}.zip")
+    print(f"|-----{GREEN_START}Model saved to:{COLOR_END}")
+    print(f"|-------Latest: {latest_model_path}")
+    print(f"|-------Backup: {timestamped_path}.zip")
+
+
+if __name__ == "__main__":
+    # Training configuration
+    CONTINUE_TRAINING = True  # Set to True to load existing model, False for fresh start
+    MODEL_NAME = "sac_sat_faster_2"  # Base name for saved models
+    TRAINING_TIMESTEPS = 10_000  # Number of timesteps per training session
+    CHECK_FREQ = 1_000  # Frequency of callback checks
+
+    # Create the training environment
+    env = create_environment()
+
+    # Create or load the agent model
+    model, save_path, latest_model_path = create_or_load_model(env, CONTINUE_TRAINING, MODEL_NAME, log_path=log_path)
+    
+    # Monitor training progress in TensorBoard
+    tensorboard_process = start_tensorboard()
+    
+    # Train the agent model
+    model = train_agent(model, TRAINING_TIMESTEPS, CHECK_FREQ, MODEL_NAME)
+
+    # Save the trained model
+    save_model(model, save_path, latest_model_path)
 
     # Stop TensorBoard server on ctrl+C
     try:
+        print("|")
+        print(f"|---{YELLOW_START}Press Ctrl+C to stop the TensorBoard server.{COLOR_END}")
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
