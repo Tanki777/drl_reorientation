@@ -1,0 +1,22 @@
+{
+    "model_name": "test_auto_trainer_1",
+    "schedule_name": "",
+    "phases": [
+        {
+            "phase_name": "Test Phase 1: Easy",
+            "timesteps_left": 0
+        },
+        {
+            "phase_name": "Test Phase 1: Medium",
+            "timesteps_left": 0
+        },
+        {
+            "phase_name": "Test Phase 1: Hard",
+            "timesteps_left": 0
+        },
+        {
+            "phase_name": "Test Phase 1: Extreme",
+            "timesteps_left": 0
+        }
+    ]
+}
