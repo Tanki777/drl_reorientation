@@ -23,13 +23,14 @@ log_path = os.path.join(repo_parent_dir, "tensorboard")
 if not os.path.exists(log_path):
     os.makedirs(log_path)
 models_path = os.path.join(repo_parent_dir, "models")
+replay_buffer_path = os.path.join(repo_parent_dir, "models_replay_buffers")
 
 class CustomCallback(BaseCallback):
-    def __init__(self, check_freq, save_interval, base_save_path, verbose=1):
+    def __init__(self, check_freq, save_interval, model_name, verbose=1):
         super().__init__(verbose)
         self.check_freq = check_freq
         self.save_interval = save_interval
-        self.base_save_path = base_save_path
+        self.model_name = model_name
         
         # Custom metrics accumulators
         self.custom_metrics = {
@@ -85,7 +86,7 @@ class CustomCallback(BaseCallback):
             unique_model_path = f"{self.base_save_path}_{self.num_timesteps}_{timestamp}"
 
             # Save the model
-            self.model.save(unique_model_path)
+            save_model(self.model, self.model_name, save_latest=False)
             
         return True
     
@@ -96,12 +97,12 @@ class CustomCallback(BaseCallback):
                 mean_value = sum(values) / len(values)
                 # Log to TensorBoard using the logger
                 self.logger.record(f"custom/{metric_name}_mean", mean_value)
-                
-                # For settled episodes, also log success rate
-                if metric_name == 'settled':
-                    success_rate = mean_value  # settled contains 0/1 values
-                    self.logger.record(f"custom/success_rate", success_rate)
-                
+            
+                # Log max values
+                if metric_name in ["final_error_angle", "settling_time", "initial_error_angle"]:
+                    max_value = max(values)
+                    self.logger.record(f"custom/{metric_name}_max", max_value)
+
                 # Clear the accumulated values
                 self.custom_metrics[metric_name] = []
 
@@ -131,7 +132,8 @@ def start_tensorboard():
             "tensorboard",
             f"--logdir={log_path}",
             "--port=6006",
-            "--host=localhost"
+            "--host=localhost",
+            "--reload_interval=60"
         ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         
         print("|-----Access TensorBoard at: http://localhost:6006")
@@ -177,12 +179,12 @@ def create_environment(initial_state=None):
     if not os.path.exists(monitor_dir):
         os.makedirs(monitor_dir)
 
-    # Create vectorized environment with 8 parallel instances
+    # Create vectorized environment with 16 parallel instances
     if initial_state is not None:
         # Need to use a lambda to pass initial_state parameter
-        env = make_vec_env(lambda: SatDynEnv(initial_state=initial_state), n_envs=8)
+        env = make_vec_env(lambda: SatDynEnv(initial_state=initial_state), n_envs=16)
     else:
-        env = make_vec_env(SatDynEnv, n_envs=8)
+        env = make_vec_env(SatDynEnv, n_envs=16)
     
     # Add timestamp to monitor file to prevent overwriting previous runs
     timestamp = int(time.time())
@@ -222,9 +224,15 @@ def create_or_load_model(env, continue_training, model_name, log_path):
     if not os.path.exists(models_path):
         os.makedirs(models_path)
 
+    if not os.path.exists(replay_buffer_path):
+        os.makedirs(replay_buffer_path)
+
     # Setting the path to save the model
     save_path = os.path.join(models_path, model_name)
     latest_model_path = os.path.join(models_path, f"{model_name}_latest.zip")
+
+    # Setting the path to save the replay buffer
+    latest_replay_buffer_path = os.path.join(replay_buffer_path, f"{model_name}_latest.pkl")
 
     print("|")
     print(f"|---{YELLOW_START}Creating/Loading the agent...{COLOR_END}")
@@ -236,7 +244,7 @@ def create_or_load_model(env, continue_training, model_name, log_path):
         try:
             model = SAC.load(latest_model_path, device='cuda')
             model.set_env(env)
-            print(f"|-----{GREEN_START}Successfully loaded existing model!{COLOR_END}")
+            print(f"|-----{GREEN_START}Successfully loaded existing model.{COLOR_END}")
             print(f"|-----Previous total timesteps: {model.num_timesteps}")
             
             # Update tensorboard log directory to continue logging
@@ -246,11 +254,21 @@ def create_or_load_model(env, continue_training, model_name, log_path):
             print(f"|-----{RED_START}Failed to load model: {e}{COLOR_END}")
             print(f"|-----{YELLOW_START}Creating new model instead...{COLOR_END}")
             continue_training = False
+
+        # Try to load existing replay buffer
+        if os.path.exists(latest_replay_buffer_path):
+            try:
+                model.load_replay_buffer(latest_replay_buffer_path)
+                print(f"|-----{GREEN_START}Successfully loaded existing replay buffer.{COLOR_END}")
+                print(f"DEBUG: Loaded replay buffer with {model.replay_buffer.size()} transitions.")
+            except Exception as e:
+                print(f"|-----{RED_START}Failed to load replay buffer: {e}{COLOR_END}")
+                print(f"|-----{YELLOW_START}Continuing without loading replay buffer...{COLOR_END}")
     
     # Create new model if not loading existing one
     if not continue_training or not os.path.exists(latest_model_path):
         print(f"|-----{YELLOW_START}Creating new model from scratch...{COLOR_END}")
-        model = SAC("MlpPolicy", env, batch_size=2048, gradient_steps=8, policy_kwargs=dict(
+        model = SAC("MlpPolicy", env, buffer_size=1_000_000, learning_starts=10_000, batch_size=2048, gradient_steps=-1, policy_kwargs=dict(
         net_arch=dict(pi=[512, 512], qf=[512, 512])), verbose=1, device='cuda',
                     tensorboard_log=log_path)  # Use absolute path for consistency
         
@@ -292,13 +310,12 @@ def train_agent(model, save_path, total_timesteps, check_freq, save_interval, mo
     return model
 
 
-def save_model(model, save_path, latest_model_path):
+def save_model(model, model_name, save_latest=True):
     """
     Save the trained model.
     Args:
         model: The trained SAC model
-        save_path: Base path to save the model
-        latest_model_path: Path to the latest saved model
+        model_name: Name of the model
     """
     # Save the updated model
     print("|")
@@ -306,15 +323,29 @@ def save_model(model, save_path, latest_model_path):
     
     # Save with timestamp for history
     timestamp = int(time.time())
-    timestamped_path = f"{save_path}_{model.num_timesteps}_{timestamp}"
+    timestamped_path = os.path.join(models_path, f"{model_name}_{model.num_timesteps}_{timestamp}")
     model.save(timestamped_path)
+
+    # Save replay buffer
+    timestamped_path_replay = os.path.join(replay_buffer_path, f"{model_name}_{model.num_timesteps}_{timestamp}")
     
-    # Save as latest model (for next session)
-    model.save(latest_model_path.replace('.zip', ''))  # Remove .zip as save() adds it
+    if save_latest:
+        # Save as latest model (for next session)
+        latest_model_path = os.path.join(models_path, f"{model_name}_latest")
+        model.save(latest_model_path)
+
+        # Save replay buffer as latest
+        latest_replay_path = os.path.join(replay_buffer_path, f"{model_name}_latest")
+        model.save_replay_buffer(latest_replay_path)
     
     print(f"|-----{GREEN_START}Model saved to:{COLOR_END}")
-    print(f"|-------Latest: {latest_model_path}")
-    print(f"|-------Backup: {timestamped_path}.zip")
+    if save_latest:
+        print(f"|-------Latest: {latest_model_path}")
+    print(f"|-------Backup: {timestamped_path}")
+    print(f"|-----{GREEN_START}Replay buffer saved to:{COLOR_END}")
+    if save_latest:
+        print(f"|-------Latest: {latest_replay_path}")
+    print(f"|-------Backup: {timestamped_path_replay}")
 
 
 if __name__ == "__main__":
@@ -322,8 +353,8 @@ if __name__ == "__main__":
     CONTINUE_TRAINING = True  # Set to True to load existing model, False for fresh start
     MODEL_NAME = "sac_sat_faster_2"  # Base name for saved models
     TRAINING_TIMESTEPS = 10_000  # Number of timesteps per training session
-    CHECK_FREQ = 1_000  # Frequency of callback checks every CHECK_FREQ timesteps
-    SAVE_INTERVAL = 200_000  # Model backup saved after every SAVE_INTERVAL timesteps
+    CHECK_FREQ = 500  # Frequency of callback checks every CHECK_FREQ timesteps
+    SAVE_INTERVAL = 100_000  # Model backup saved after every SAVE_INTERVAL timesteps
 
     # Create the training environment
     env = create_environment()
@@ -338,7 +369,7 @@ if __name__ == "__main__":
     model = train_agent(model, save_path, TRAINING_TIMESTEPS, CHECK_FREQ, SAVE_INTERVAL, MODEL_NAME)
 
     # Save the trained model
-    save_model(model, save_path, latest_model_path)
+    save_model(model, MODEL_NAME)
 
     # Stop TensorBoard server on ctrl+C
     try:
