@@ -33,6 +33,14 @@ def normalize_quaternion(q):
     return q  # Return unchanged if norm is zero
 
 @njit
+def normalize_vector(v):
+    #norm = np.linalg.norm(v)
+    norm = np.sqrt(v[0] ** 2 + v[1] ** 2 + v[2] ** 2)   # using custom calculation of norm in order to use numba
+    if norm > 0:  # Avoid division by zero
+        return v / norm
+    return v  # Return unchanged if norm is zero
+
+@njit
 def torque_function(state, kp, kd):
     # The desired quaternion is the identity quaternion
     q0 = state[0]
@@ -132,6 +140,68 @@ def reward_function(state):
     
     return total_reward
 
+@njit
+def reward_function_new(state):
+    q0_current = state[0]
+    omega_x = state[4]
+    omega_y = state[5]
+    omega_z = state[6]
+    omega_x_prev = state[8]
+    omega_y_prev = state[9]
+    omega_z_prev = state[10]
+    torque_x = state[11]
+    torque_y = state[12]
+    torque_z = state[13]
+    
+    # Attitude error (rotation angle from identity quaternion)
+    err_phi = 2 * math.acos(abs(q0_current))  # [rad]
+    err_phi_deg = err_phi * 180 / np.pi  # [degrees]
+    reward_accuracy = - err_phi_deg
+
+    # Smoothness
+    delta_omega_x = omega_x - omega_x_prev
+    delta_omega_y = omega_y - omega_y_prev
+    delta_omega_z = omega_z - omega_z_prev
+    reward_smooth = -0.01 * np.sqrt(delta_omega_x**2 + delta_omega_y**2 + delta_omega_z**2)
+
+    # Efficiency
+    reward_efficiency = -0.05 * np.sqrt(torque_x**2 + torque_y**2 + torque_z**2)
+
+    total_reward = reward_accuracy + reward_smooth + reward_efficiency
+    return total_reward
+
+
+@njit
+def reward_function_yang(state):
+    q0_current = state[0]
+    q0_prev = state[7]
+    # omega_x = state[4]
+    # omega_y = state[5]
+    # omega_z = state[6]
+    # omega_x_prev = state[8]
+    # omega_y_prev = state[9]
+    # omega_z_prev = state[10]
+    torque_x = state[11]
+    torque_y = state[12]
+    torque_z = state[13]
+    torque_x_prev = state[14]
+    torque_y_prev = state[15]
+    torque_z_prev = state[16]
+    
+    err_phi_current = 2 * math.acos(q0_current)   # in [rad]
+    err_phi_prev = 2 * math.acos(q0_prev)   # in [rad]
+
+    if err_phi_current <= err_phi_prev:
+        reward0 = math.exp(-err_phi_current/(0.14 * 2 * np.pi)) - 0.05*(math.sqrt(torque_x**2 + torque_y**2 + torque_z**2)/math.sqrt(12)) - 0.005*math.sqrt((torque_x - torque_x_prev)**2 + (torque_y - torque_y_prev)**2 + (torque_z - torque_z_prev)**2)
+    else:
+        reward0 = math.exp(-err_phi_current/(0.14 * 2 * np.pi)) - 0.05*(math.sqrt(torque_x**2 + torque_y**2 + torque_z**2)/math.sqrt(12)) - 0.005*math.sqrt((torque_x - torque_x_prev)**2 + (torque_y - torque_y_prev)**2 + (torque_z - torque_z_prev)**2) - 1
+
+    if err_phi_current <= 0.25 * np.pi / 180:       # required attitude accuracy is satisfied
+        return reward0 + 9
+    else:
+        return reward0
+
+
 class SatDynEnv(gym.Env):
 
     metadata = {
@@ -147,10 +217,10 @@ class SatDynEnv(gym.Env):
         """ TO DO: to normalize the action space"""
         self.action_space = spaces.Box(low=-1, high=1, shape=(3,), dtype=np.float32)
 
-        # Define observation space: [q, omega, q0_prev] = [q_0, q_1, q_2, q_3, omega_1, omega_2, omega_3, q0_prev]
+        # Define observation space: [q, omega, q0_prev] = [q_0, q_1, q_2, q_3, omega_1, omega_2, omega_3, q0_prev, omega_1_prev, omega_2_prev, omega_3_prev, torque_x, torque_y, torque_z, torque_x_prev, torque_y_prev, torque_z_prev]
         # previous q0 is augmented in the state vector since it will be used in the reward function.
-        self.observation_space = spaces.Box(low= np.array([-1, -1, -1, -1, -300, -300, -300, -1]),
-                                            high= np.array([1, 1, 1, 1, 300, 300, 300, 1]),
+        self.observation_space = spaces.Box(low= np.array([-1, -1, -1, -1, -300, -300, -300, -1, -300, -300, -300, -2, -2, -2, -2, -2, -2]),
+                                            high= np.array([1, 1, 1, 1, 300, 300, 300, 1, 300, 300, 300, 2, 2, 2, 2, 2, 2]),
                                             dtype= np.float32)
 
         # Initial state
@@ -235,8 +305,9 @@ class SatDynEnv(gym.Env):
         omega_initial = (omega_magnitude * omega_direction).astype(np.float32)
         
         q0_prev = q_array_initial[0]
+        omega_prev = omega_initial
         state_ = np.concatenate((q_array_initial, omega_initial))
-        self.state = np.concatenate((state_, [q0_prev]))
+        self.state = np.concatenate((state_, [q0_prev, *omega_prev, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]))
 
         self.steps = 0
         
@@ -253,6 +324,8 @@ class SatDynEnv(gym.Env):
         inertia_inv = np.linalg.inv(self.inertia)
 
         q0_prev = self.state[0]     # store current q0 before integration
+        omega_prev = self.state[4:7]  # store current omega before integration
+        torque_prev = self.state[11:14]  # store current torque before integration
 
         """ integrating using 4th-order RK method """
         f1 = self.dt * sat_ode(self.state[:7], self.inertia, inertia_inv, action * scale_torque)
@@ -265,17 +338,24 @@ class SatDynEnv(gym.Env):
         # Normalize quaternion after integration
         self.state[:4] = normalize_quaternion(self.state[:4])
 
-        self.state[-1] = q0_prev
-
-        # Explicitly cast the state to float32 before returning
-        obs = self.state.astype(np.float32)
+        self.state[7] = q0_prev
+        self.state[8:11] = omega_prev
+        self.state[14:17] = torque_prev
+        applied_torque = action * scale_torque
+        self.state[11:14] = applied_torque
+        
 
         # Calculate reward
         reward = reward_function(self.state)
+        #reward = reward_function_new(self.state)
+        #reward = reward_function_yang(self.state)
         
         # Track custom metrics
-        applied_torque = action * scale_torque
+        
         self.episode_torques.append(np.linalg.norm(applied_torque))
+
+        # Explicitly cast the state to float32 before returning
+        obs = self.state.astype(np.float32)
         
         # Check settling condition
         current_error_deg = 2 * math.acos(abs(self.state[0])) * 180 / np.pi
