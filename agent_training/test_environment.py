@@ -97,7 +97,7 @@ def sat_ode(state, inertia, inertia_inv, torque):
     return np.concatenate((q_dot, omega_dot.flatten()))
 
 @njit
-def reward_function(state):
+def reward_function_old(state):
     q0_current = state[0]
     omega_x = state[4]
     omega_y = state[5]
@@ -165,7 +165,7 @@ def reward_function_new(state):
     reward_smooth = -0.01 * np.sqrt(delta_omega_x**2 + delta_omega_y**2 + delta_omega_z**2)
 
     # Efficiency
-    reward_efficiency = -0.05 * np.sqrt(torque_x**2 + torque_y**2 + torque_z**2)
+    reward_efficiency = -0.025 * np.sqrt(torque_x**2 + torque_y**2 + torque_z**2)
 
     total_reward = reward_accuracy + reward_smooth + reward_efficiency
     return total_reward
@@ -217,7 +217,7 @@ class SatDynEnv(gym.Env):
         """ TO DO: to normalize the action space"""
         self.action_space = spaces.Box(low=-1, high=1, shape=(3,), dtype=np.float32)
 
-        # Define observation space: [q, omega, q0_prev] = [q_0, q_1, q_2, q_3, omega_1, omega_2, omega_3, q0_prev, omega_1_prev, omega_2_prev, omega_3_prev, torque_x, torque_y, torque_z, torque_x_prev, torque_y_prev, torque_z_prev]
+        # Define observation space: [q, omega, q0_prev] = [q_0, q_1, q_2, q_3, omega_1, omega_2, omega_3, q0_prev, omega_1_prev, omega_2_prev, omega_3_prev, torque_x, torque_y, torque_z, torque_x_prev, torque_y_prev, torque_z_prev, ]
         # previous q0 is augmented in the state vector since it will be used in the reward function.
         self.observation_space = spaces.Box(low= np.array([-1, -1, -1, -1, -300, -300, -300, -1, -300, -300, -300, -2, -2, -2, -2, -2, -2]),
                                             high= np.array([1, 1, 1, 1, 300, 300, 300, 1, 300, 300, 300, 2, 2, 2, 2, 2, 2]),
@@ -242,6 +242,7 @@ class SatDynEnv(gym.Env):
         self.initial_error_angle = 0.0
         self.initial_angular_velocity_mag = 0.0
         self.episode_torques = []
+        self.episode_torques_prev = []
         self.settled = False
         self.settling_time = -1  # -1 means not settled
         self.settling_threshold_deg = 2.0  # degrees for considering "settled"
@@ -315,6 +316,7 @@ class SatDynEnv(gym.Env):
         self.initial_error_angle = 2 * math.acos(abs(q_array_initial[0])) * 180 / np.pi  # degrees
         self.initial_angular_velocity_mag = np.linalg.norm(omega_initial) * 180 / np.pi  # deg/s
         self.episode_torques = []
+        self.episode_torques_prev = []
         self.settled = False
         self.settling_time = -1
         
@@ -346,13 +348,14 @@ class SatDynEnv(gym.Env):
         
 
         # Calculate reward
-        reward = reward_function(self.state)
+        reward = reward_function_old(self.state)
         #reward = reward_function_new(self.state)
         #reward = reward_function_yang(self.state)
         
         # Track custom metrics
         
         self.episode_torques.append(np.linalg.norm(applied_torque))
+        self.episode_torques_prev.append(np.linalg.norm(torque_prev))
 
         # Explicitly cast the state to float32 before returning
         obs = self.state.astype(np.float32)
@@ -380,6 +383,7 @@ class SatDynEnv(gym.Env):
             final_error_angle = current_error_deg
             avg_torque = np.mean(self.episode_torques) if self.episode_torques else 0.0
             max_torque = np.max(self.episode_torques) if self.episode_torques else 0.0
+            max_torque_prev = np.max(self.episode_torques_prev) if self.episode_torques else 0.0
             
             info.update({
                 "custom_metrics/initial_error_angle": self.initial_error_angle,
@@ -388,6 +392,7 @@ class SatDynEnv(gym.Env):
                 "custom_metrics/settling_time": self.settling_time,
                 "custom_metrics/avg_torque": avg_torque,
                 "custom_metrics/max_torque": max_torque,
+                "custom_metrics/max_torque_prev": max_torque_prev,
                 "custom_metrics/settled": float(self.settled),
             })
 
