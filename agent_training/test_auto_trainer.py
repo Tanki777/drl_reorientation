@@ -142,18 +142,18 @@ def do_scheduled_training(model_name, schedule, continue_training):
         print(f"|---Training for {timesteps_left} timesteps...")
 
         # Create the training environment
-        env = trainer.create_environment(initial_state=initial_state)
+        env = trainer.create_environment(model_name, initial_state=initial_state, phase_name=phase_name)
 
         # Create or load the model based on CONTINUE_TRAINING
         model, save_path, latest_model_path = create_or_load_model(continue_training, model_name, env)
 
         # Train the agent model for the specified timesteps
-        model = trainer.train_agent(model, save_path, timesteps_left, 1000, 200_000, model_name)
+        model = trainer.train_agent(model, save_path, timesteps_left, 500, 100_000, model_name)
         print("|")
         print(f"|---{GREEN_START}Phase {phase_name} completed.{COLOR_END}")
 
         # Save the trained model
-        trainer.save_model(model, save_path, latest_model_path)
+        trainer.save_model(model, model_name)
 
         # Update metadata
         metadata["phases"][phase_index]["timesteps_left"] = 0
@@ -163,9 +163,9 @@ def do_scheduled_training(model_name, schedule, continue_training):
 
 if __name__ == "__main__":
     # Define which schedule to use
-    SCHEDULE_FILE_NAME = "test_schedule_1.json"
-    CONTINUE_TRAINING = True
-    MODEL_NAME = "test_auto_trainer_1"
+    SCHEDULE_FILE_NAME = "test_schedule_2.json"
+    CONTINUE_TRAINING = False
+    MODEL_NAME = "test_reward_new_rb_b256_v2"
 
     # Load the selected schedule
     schedule = load_schedule(SCHEDULE_FILE_NAME)
