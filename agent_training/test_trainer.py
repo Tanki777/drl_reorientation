@@ -75,20 +75,13 @@ class CustomCallback(BaseCallback):
                         if metric_key in info:
                             self.custom_metrics[metric_name].append(info[metric_key])
 
-        # Log metrics periodically
-        if self.n_calls % self.check_freq == 0:
-            self._log_custom_metrics()
-
         # Save model every save_interval total timesteps
         if self.num_timesteps % self.save_interval == 0:
-            # Create a unique model filename using timestamp
-            timestamp = int(time.time())
-            unique_model_path = f"{self.base_save_path}_{self.num_timesteps}_{timestamp}"
-
             # Save the model
             save_model(self.model, self.model_name, save_latest=False)
             
         return True
+    
     
     def _log_custom_metrics(self):
         """Log accumulated custom metrics to TensorBoard"""
@@ -105,6 +98,11 @@ class CustomCallback(BaseCallback):
 
                 # Clear the accumulated values
                 self.custom_metrics[metric_name] = []
+
+
+    def _on_rollout_end(self):
+        # Log custom metrics at the end of each rollout
+        self._log_custom_metrics()
 
 
 def start_tensorboard():
@@ -132,8 +130,7 @@ def start_tensorboard():
             "tensorboard",
             f"--logdir={log_path}",
             "--port=6006",
-            "--host=localhost",
-            "--reload_interval=60"
+            "--host=localhost"
         ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         
         print("|-----Access TensorBoard at: http://localhost:6006")
@@ -165,7 +162,7 @@ def stop_tensorboard(process):
             print(f"|-----{RED_START}Error stopping TensorBoard: {e}{COLOR_END}")
 
 
-def create_environment(initial_state=None):
+def create_environment(model_name, initial_state=None, phase_name=None):
     """
     Create the training environment
     Returns:
@@ -183,12 +180,18 @@ def create_environment(initial_state=None):
     if initial_state is not None:
         # Need to use a lambda to pass initial_state parameter
         env = make_vec_env(lambda: SatDynEnv(initial_state=initial_state), n_envs=16)
+
     else:
         env = make_vec_env(SatDynEnv, n_envs=16)
     
-    # Add timestamp to monitor file to prevent overwriting previous runs
-    timestamp = int(time.time())
-    monitor_log_file = os.path.join(monitor_dir, f"training_monitor_{timestamp}")
+    # If phase name is available, use it in the monitor log filename
+    if phase_name:
+        monitor_log_file = os.path.join(monitor_dir, f"{model_name}_{phase_name}")
+    
+    # If phase name not available, use timestamp
+    else:
+        timestamp = int(time.time())
+        monitor_log_file = os.path.join(monitor_dir, f"{model_name}_{timestamp}")
     
     # Track custom metrics in VecMonitor
     custom_info_keywords = (
@@ -198,6 +201,7 @@ def create_environment(initial_state=None):
         "custom_metrics/settling_time",
         "custom_metrics/avg_torque",
         "custom_metrics/max_torque",
+        "custom_metrics/max_torque_prev",
         "custom_metrics/settled",
     )
     
@@ -268,7 +272,7 @@ def create_or_load_model(env, continue_training, model_name, log_path):
     # Create new model if not loading existing one
     if not continue_training or not os.path.exists(latest_model_path):
         print(f"|-----{YELLOW_START}Creating new model from scratch...{COLOR_END}")
-        model = SAC("MlpPolicy", env, buffer_size=1_000_000, learning_starts=10_000, batch_size=2048, gradient_steps=-1, policy_kwargs=dict(
+        model = SAC("MlpPolicy", env, buffer_size=1_000_000, learning_starts=10_000, batch_size=256, gradient_steps=-1, policy_kwargs=dict(
         net_arch=dict(pi=[512, 512], qf=[512, 512])), verbose=1, device='cuda',
                     tensorboard_log=log_path)  # Use absolute path for consistency
         
@@ -288,7 +292,7 @@ def train_agent(model, save_path, total_timesteps, check_freq, save_interval, mo
     Returns:
         model: The trained SAC model
     """
-    custom_callback = CustomCallback(check_freq=check_freq, save_interval=save_interval, base_save_path=save_path)
+    custom_callback = CustomCallback(check_freq=check_freq, save_interval=save_interval, model_name=model_name)
 
     print("|")
     print(f"|---{YELLOW_START}Start training the agent...{COLOR_END}")
@@ -321,13 +325,13 @@ def save_model(model, model_name, save_latest=True):
     print("|")
     print(f"|---{YELLOW_START}Saving improved model...{COLOR_END}")
     
-    # Save with timestamp for history
-    timestamp = int(time.time())
-    timestamped_path = os.path.join(models_path, f"{model_name}_{model.num_timesteps}_{timestamp}")
-    model.save(timestamped_path)
+    # Save model backup
+    backup_path = os.path.join(models_path, f"{model_name}_{model.num_timesteps}")
+    model.save(backup_path)
 
     # Save replay buffer
-    timestamped_path_replay = os.path.join(replay_buffer_path, f"{model_name}_{model.num_timesteps}_{timestamp}")
+    backup_path_replay = os.path.join(replay_buffer_path, f"{model_name}_{model.num_timesteps}")
+    model.save_replay_buffer(backup_path_replay)
     
     if save_latest:
         # Save as latest model (for next session)
@@ -341,12 +345,11 @@ def save_model(model, model_name, save_latest=True):
     print(f"|-----{GREEN_START}Model saved to:{COLOR_END}")
     if save_latest:
         print(f"|-------Latest: {latest_model_path}")
-    print(f"|-------Backup: {timestamped_path}")
+    print(f"|-------Backup: {backup_path}")
     print(f"|-----{GREEN_START}Replay buffer saved to:{COLOR_END}")
     if save_latest:
         print(f"|-------Latest: {latest_replay_path}")
-    print(f"|-------Backup: {timestamped_path_replay}")
-
+    print(f"|-------Backup: {backup_path_replay}")
 
 if __name__ == "__main__":
     # Training configuration
@@ -357,7 +360,7 @@ if __name__ == "__main__":
     SAVE_INTERVAL = 100_000  # Model backup saved after every SAVE_INTERVAL timesteps
 
     # Create the training environment
-    env = create_environment()
+    env = create_environment(MODEL_NAME)
 
     # Create or load the agent model
     model, save_path, latest_model_path = create_or_load_model(env, CONTINUE_TRAINING, MODEL_NAME, log_path=log_path)
