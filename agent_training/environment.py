@@ -190,11 +190,21 @@ class SatDynEnv(gym.Env):
         # Set initial state (will be randomized in reset())
         self.reset()
 
-        self.inertia = np.array([[60, 5, 1],
-                                [5, 50, 2],
-                                [1, 2, 70]],
+        self.inertia_body = np.array([[1.672, 0.0, 0.0],
+                                [0.0, 0.1259, 0.0],
+                                [0.0, 0.0, 0.06121]],
                                 np.float32)
-        """TO DO: to add random noises on the nominal inertia matrix"""
+        
+        self.inertia_wheels = 0.00001722
+
+        self.wheels_positions = np.array([[0.0, 0.0, 0.8165, -0.8165],
+                                        [0.0, -0.9428, 0.4714, 0.4714],
+                                        [-1.0, 0.3333, 0.3333, 0.3333]],
+                                np.float32)
+        
+        # see 3 lines above dynamics equations red box, in 2023 paper
+        # the sum_i (a_i)(a_i)T is an outer product, equal to A @ A.T
+        self.inertia_total = self.inertia_body + self.inertia_wheels * (self.wheels_positions @ self.wheels_positions.transpose()) 
 
         # Define time step, step duration, and maximum steps
         self.dt = 0.1
@@ -269,10 +279,10 @@ class SatDynEnv(gym.Env):
         torque_prev = self.state[11:14]  # store current torque before integration
 
         """ integrating using 4th-order RK method """
-        f1 = self.dt * sat_ode(self.state[:7], self.inertia, inertia_inv, action * scale_torque)
-        f2 = self.dt * sat_ode(self.state[:7] + 0.5 * f1, self.inertia, inertia_inv, action * scale_torque)
-        f3 = self.dt * sat_ode(self.state[:7] + 0.5 * f2, self.inertia, inertia_inv, action * scale_torque)
-        f4 = self.dt * sat_ode(self.state[:7] + f3, self.inertia, inertia_inv, action * scale_torque)
+        f1 = self.dt * sat_ode(self.state[:7], self.inertia_total, self.inertia_wheels, self.wheels_positions, action * scale_torque)
+        f2 = self.dt * sat_ode(self.state[:7] + 0.5 * f1, self.inertia_total, self.inertia_wheels, self.wheels_positions, action * scale_torque)
+        f3 = self.dt * sat_ode(self.state[:7] + 0.5 * f2, self.inertia_total, self.inertia_wheels, self.wheels_positions, action * scale_torque)
+        f4 = self.dt * sat_ode(self.state[:7] + f3, self.inertia_total, self.inertia_wheels, self.wheels_positions, action * scale_torque)
 
         self.state[:7] = self.state[:7] + (f1 + 2 * f2 + 2 * f3 + f4)/6
 
