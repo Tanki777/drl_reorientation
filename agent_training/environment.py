@@ -97,13 +97,6 @@ def sat_ode(state, torque, inertia_total, inertia_wheels, wheels_position_matrix
                             [omega[1], -omega[2], 0, omega[0]],
                             [omega[2], omega[1], -omega[0], 0]],
                            np.float32)
-    
-    # Z^-1 matrix from paper 2023 equation 2b
-    #inertia_combined = np.array([[inertia_total, wheels_position_matrix @ inertia_wheels],
-	#                  [inertia_wheels @ wheels_position_matrix.transpose(), inertia_wheels]], np.float32)
-
-    # Z matrix from paper 2023 equation 2b
-    #inertia_combined_inv = np.linalg.inv(inertia_combined)
 
 	# from paper 2023 equation 2a
     q_dot = np.float32(0.5) * omega_cross @ q_quat.reshape(-1, 1)
@@ -139,11 +132,11 @@ def reward_function(state, scale_torque_norm):
     err_phi_prev = 2 * math.acos(q0_prev)   # in [rad]
 
     if err_phi_current <= err_phi_prev:
-        reward0 = math.exp(-err_phi_current/(0.14 * 2 * np.pi)) - 0.05*(math.sqrt(torque_1**2 + torque_2**2 + torque_3**2 + torque_4**2)/scale_torque_norm) 
-        - 0.005*math.sqrt((torque_1 - torque_1_prev)**2 + (torque_2 - torque_2_prev)**2 + (torque_3 - torque_3_prev)**2 + (torque_4 - torque_4_prev)**2)
+        reward0 = (math.exp(-err_phi_current/(0.14 * 2 * np.pi)) - 0.05*(math.sqrt(torque_1**2 + torque_2**2 + torque_3**2 + torque_4**2)/scale_torque_norm) 
+        - 0.005*math.sqrt((torque_1 - torque_1_prev)**2 + (torque_2 - torque_2_prev)**2 + (torque_3 - torque_3_prev)**2 + (torque_4 - torque_4_prev)**2))
     else:
-        reward0 = math.exp(-err_phi_current/(0.14 * 2 * np.pi)) - 0.05*(math.sqrt(torque_1**2 + torque_2**2 + torque_3**2 + torque_4**2)/scale_torque_norm) 
-        - 0.005*math.sqrt((torque_1 - torque_1_prev)**2 + (torque_2 - torque_2_prev)**2 + (torque_3 - torque_3_prev)**2 + (torque_4 - torque_4_prev)**2) - 1
+        reward0 = (math.exp(-err_phi_current/(0.14 * 2 * np.pi)) - 0.05*(math.sqrt(torque_1**2 + torque_2**2 + torque_3**2 + torque_4**2)/scale_torque_norm)
+        - 0.005*math.sqrt((torque_1 - torque_1_prev)**2 + (torque_2 - torque_2_prev)**2 + (torque_3 - torque_3_prev)**2 + (torque_4 - torque_4_prev)**2) - 1)
 
     if err_phi_current <= 0.25 * np.pi / 180:       # required attitude accuracy is satisfied
         return reward0 + 9
@@ -204,7 +197,7 @@ class SatDynEnv(gym.Env):
 
         # Define time step, step duration, and maximum steps
         self.dt = constants['dt']
-        self.max_steps = 1000
+        self.max_steps = 1500
         self.steps = 0
         self.render_mode = render_mode
 
