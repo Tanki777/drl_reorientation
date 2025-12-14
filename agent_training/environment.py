@@ -287,9 +287,7 @@ class SatDynEnv(gym.Env):
         
 
         # Calculate reward
-        reward = reward_function_old(self.state)
-        #reward = reward_function_new(self.state)
-        #reward = reward_function_yang(self.state)
+        reward = reward_function(self.state)
         
         # Track custom metrics
         
