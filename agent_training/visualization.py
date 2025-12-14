@@ -52,7 +52,7 @@ def simulate_agent(model: SAC, eval_env: SatDynEnv):
         eval_env: The evaluation environment.
     """
     # Arrays for storing data
-    times = np.linspace(0, 100, 100 * 10)
+    times = np.linspace(0, 150, 150 * 10)
     states = []
     torques = []
     rewards = []
@@ -261,9 +261,10 @@ def plot_actual_attitude(simulation_data: dict):
     ax5.grid()
     # Plot torque input
     ax6 = fig.add_subplot(236)
-    ax6.plot(times, torques_array[:, 0], label="$\\tau_x$")
-    ax6.plot(times, torques_array[:, 1], label="$\\tau_y$")
-    ax6.plot(times, torques_array[:, 2], label="$\\tau_z$")
+    ax6.plot(times, torques_array[:, 0], label="$\\tau_1$")
+    ax6.plot(times, torques_array[:, 1], label="$\\tau_2$")
+    ax6.plot(times, torques_array[:, 2], label="$\\tau_3$")
+    ax6.plot(times, torques_array[:, 3], label="$\\tau_4$")
     ax6.set_title("Control torques")
     ax6.set_xlabel("Time (s)")
     ax6.set_ylabel("$\\tau$ (Nm)")
@@ -280,11 +281,11 @@ def plot_actual_attitude(simulation_data: dict):
 
 ### MAIN ###
 if __name__ == "__main__":
-    MODEL_NAME = "test_reward_old_rb_b256_v2_latest"
+    MODEL_NAME = "test_new_env_2_500000"
     model = load_agent(MODEL_NAME)
 
     # Set initial state for evaluation environment
-    INITIAL_STATE = [25.0, 25.0, 0.05, 0.05]  # [min_initial_angle, max_initial_angle, min_initial_angular_velocity, max_initial_angular_velocity]
+    INITIAL_STATE = [8.0, 8.0, 0.05, 0.05]  # [min_initial_angle, max_initial_angle, min_initial_angular_velocity, max_initial_angular_velocity]
     eval_env = create_evaluation_env(INITIAL_STATE)
 
     print_rewards(model, eval_env, n_eval_episodes=10)
