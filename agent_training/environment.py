@@ -272,8 +272,6 @@ class SatDynEnv(gym.Env):
         return self.state, {}
 
     def step(self, action):
-        inertia_inv = np.linalg.inv(self.inertia)
-
         q0_prev = self.state[0]     # store current q0 before integration
         omega_prev = self.state[4:7]  # store current omega before integration
         torque_prev = self.state[11:14]  # store current torque before integration
