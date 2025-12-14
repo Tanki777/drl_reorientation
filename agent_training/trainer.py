@@ -186,6 +186,7 @@ def create_environment(model_name, initial_state=None, phase_name=None):
     
     # If phase name is available, use it in the monitor log filename
     if phase_name:
+        phase_name = phase_name.replace(" ", "_").replace(":", "")  # Clean phase name for filename
         monitor_log_file = os.path.join(monitor_dir, f"{model_name}_{phase_name}")
     
     # If phase name not available, use timestamp
@@ -272,7 +273,7 @@ def create_or_load_model(env, continue_training, model_name, log_path):
     # Create new model if not loading existing one
     if not continue_training or not os.path.exists(latest_model_path):
         print(f"|-----{YELLOW_START}Creating new model from scratch...{COLOR_END}")
-        model = SAC("MlpPolicy", env, buffer_size=1_000_000, learning_starts=10_000, batch_size=256, gradient_steps=-1, policy_kwargs=dict(
+        model = SAC("MlpPolicy", env, learning_rate=1e-4, buffer_size=1_000_000, learning_starts=10_000, batch_size=256, gradient_steps=-1, policy_kwargs=dict(
         net_arch=dict(pi=[512, 512], qf=[512, 512])), verbose=1, device='cuda',
                     tensorboard_log=log_path)  # Use absolute path for consistency
         
