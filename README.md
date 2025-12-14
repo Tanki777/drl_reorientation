@@ -11,13 +11,14 @@ Initially, your directory structure should look like this:
     ├───agent_simulation
     └───agent_training
 ````
-After using the trainer for the first time, it should look like this (``models_meta`` and ``schedules`` only appear after using the auto trainer for the first time):
+After using the trainer or auto trainer for the first time, it should look like this (``models_meta`` and ``schedules`` only appear after using the auto trainer for the first time):
 ````
 ├───drl_reorientation
 │   ├───agent_simulation
 │   └───agent_training
 ├───models
 ├───models_meta
+├───models_replay_buffers
 ├───monitor_logs
 ├───tensorboard
 └───schedules
@@ -54,6 +55,7 @@ After using the trainer for the first time, it should look like this (``models_m
 - TensorBoard:
     - At the beginning of the training session, a TensorBoard server is started and can be accessed via http://localhost:6006.
     - The UI will show all log folders located in the TensorBoard log directory.
+    - For auto refreshing new logs, click the gear icon in the upper right corner (the one left to the encircled ``?`` icon). Then tick ``Reload data`` and set the ``Reload period`` to e.g. 60.
     - When the training session is done, the TensorBoard server remains open until closed by pressing ``Ctrl+C`` in the terminal.
 
 ### Auto Trainer
@@ -101,6 +103,7 @@ After using the trainer for the first time, it should look like this (``models_m
 - TensorBoard:
     - When the auto trainer starts, a TensorBoard server is started and can be accessed via http://localhost:6006.
     - The UI will show all log folders located in the TensorBoard log directory.
+    - For auto refreshing new logs, click the gear icon in the upper right corner (the one left to the encircled ``?`` icon). Then tick ``Reload data`` and set the ``Reload period`` to e.g. 60.
     - When the auto trainer is done, the TensorBoard server remains open until closed by pressing ``Ctrl+C`` in the terminal.
 - Training:
     - For each phase a separate training session is used.
