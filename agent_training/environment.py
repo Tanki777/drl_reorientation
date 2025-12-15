@@ -128,6 +128,11 @@ def reward_function(state, scale_torque_norm):
     torque_4_prev = state[22]
     scale_torque_norm = np.float32(scale_torque_norm)
     
+    # Clamp q0 values to [-1, 1] to prevent acos() domain errors (NaN) with large torques
+    # Using min/max instead of np.clip for numba compatibility with scalars
+    q0_current = min(max(q0_current, -1.0), 1.0)
+    q0_prev = min(max(q0_prev, -1.0), 1.0)
+    
     err_phi_current = 2 * math.acos(q0_current)   # in [rad]
     err_phi_prev = 2 * math.acos(q0_prev)   # in [rad]
 
@@ -253,7 +258,7 @@ class SatDynEnv(gym.Env):
         self.steps = 0
         
         # Initialize custom metrics for this episode
-        self.initial_error_angle = 2 * math.acos(abs(q_array_initial[0])) * 180 / np.pi  # degrees
+        self.initial_error_angle = 2 * math.acos(min(max(abs(q_array_initial[0]), 0.0), 1.0)) * 180 / np.pi  # degrees
         self.initial_angular_velocity_mag = np.linalg.norm(omega_initial) * 180 / np.pi  # deg/s
         self.episode_torques = []
         self.episode_torques_prev = []
@@ -269,13 +274,23 @@ class SatDynEnv(gym.Env):
 
         """ integrating using 4th-order RK method """
         f1 = self.dt * sat_ode(self.state[:11], action * scale_torque, constants['Jtot'], constants['Jw'], constants['A'], constants['Z'])
-        f2 = self.dt * sat_ode(self.state[:11] + 0.5 * f1, action * scale_torque, constants['Jtot'], constants['Jw'], constants['A'], constants['Z'])
-        f3 = self.dt * sat_ode(self.state[:11] + 0.5 * f2, action * scale_torque, constants['Jtot'], constants['Jw'], constants['A'], constants['Z'])
-        f4 = self.dt * sat_ode(self.state[:11] + f3, action * scale_torque, constants['Jtot'], constants['Jw'], constants['A'], constants['Z'])
+        
+        # Normalize quaternion in intermediate steps to prevent drift with large torques
+        temp_state2 = self.state[:11] + 0.5 * f1
+        temp_state2[:4] = normalize_quaternion(temp_state2[:4])
+        f2 = self.dt * sat_ode(temp_state2, action * scale_torque, constants['Jtot'], constants['Jw'], constants['A'], constants['Z'])
+        
+        temp_state3 = self.state[:11] + 0.5 * f2
+        temp_state3[:4] = normalize_quaternion(temp_state3[:4])
+        f3 = self.dt * sat_ode(temp_state3, action * scale_torque, constants['Jtot'], constants['Jw'], constants['A'], constants['Z'])
+        
+        temp_state4 = self.state[:11] + f3
+        temp_state4[:4] = normalize_quaternion(temp_state4[:4])
+        f4 = self.dt * sat_ode(temp_state4, action * scale_torque, constants['Jtot'], constants['Jw'], constants['A'], constants['Z'])
 
         self.state[:11] = self.state[:11] + (f1 + 2 * f2 + 2 * f3 + f4)/6
 
-        # Normalize quaternion after integration
+        # Normalize quaternion after integration (critical for preventing acos NaN errors)
         self.state[:4] = normalize_quaternion(self.state[:4])
 
         self.state[11] = q0_prev
@@ -297,7 +312,7 @@ class SatDynEnv(gym.Env):
         obs = self.state.astype(np.float32)
         
         # Check settling condition
-        current_error_deg = 2 * math.acos(abs(self.state[0])) * 180 / np.pi
+        current_error_deg = 2 * math.acos(min(max(abs(self.state[0]), 0.0), 1.0)) * 180 / np.pi
         current_omega_mag = np.linalg.norm(self.state[4:7])
         
         if (not self.settled and 
