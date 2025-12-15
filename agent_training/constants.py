@@ -36,10 +36,10 @@ r_F = np.array([1, 0, 0]) # Boresight vector in body frame
 
 ### COMPUTED PARAMETERS (Don't edit these, they're auto-calculated)
 
-Jw_matrix = np.diag(J_w, J_w, J_w, J_w) # turns scalar J_w value into 4x4 diagonal matrix
+Jw_matrix = np.diag([J_w, J_w, J_w, J_w]) # turns scalar J_w value into 4x4 diagonal matrix
     
 # Build Z matrix
-top = np.hstack([Jtot, A @ Jw_matrix])              # top dimension   : (3x3) + (3x4)(4x4) = (3x3) + (3x4) = (3x7)
+top = np.hstack([J_tot, A @ Jw_matrix])              # top dimension   : (3x3) + (3x4)(4x4) = (3x3) + (3x4) = (3x7)
 bottom = np.hstack([Jw_matrix @ A.T, Jw_matrix])    # bottom dimension: (4x4)(4x3) + (4x4) = (4x3) + (4x4) = (4x7)
 M = np.vstack([top, bottom])                        # total dimension : (7x7) matrix 
 Z = np.linalg.inv(M)                                # Z is also (7x7) as the inverse of M
@@ -77,7 +77,7 @@ def get_constants(): # Returns a dictionary with all constants needed by the saf
         'u_max': u_max,
         
         # Physical parameters (for reference)
-        'Jtot': Jtot,
+        'J_tot': J_tot,
         'A': A,
         'Jw': Jw
     }
