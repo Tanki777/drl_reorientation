@@ -3,13 +3,13 @@ import numpy as np
 
 ### PHYSICAL PARAMETERS
 
-J_b = np.diag([1.672, 0.1259, 0.06121])  # Body's moment of inertia (no wheels) [kg·m²] (diagonal 3x3)
+J_b = np.diag([0.1672, 0.1259, 0.06121])  # Body's moment of inertia (no wheels) [kg·m²] (diagonal 3x3)
 
 J_w = 0.00001722  # One wheel's moment of inertia [kg·m²]
 
-A=np.array([[0,  0,      0.8165, -0.8165],  # Wheel positions matrix (in body frame)
-            [0, -0.9428, 0.4714,  0.4714],  # each collumn is one a_i, like in 2023 paper 
-            [-1, 0.3333, 0.3333,  0.3333]])   
+A=np.array([[0.0,  0.0,      0.8165, -0.8165],  # Wheel positions matrix (in body frame)
+            [0.0, -0.9428, 0.4714,  0.4714],  # each collumn is one a_i, like in 2023 paper 
+            [-1.0, 0.3333, 0.3333,  0.3333]])   
 
 J_tot = J_b + J_w * A @ A.transpose()  # see 3 lines above eq. (2a) in 2023 paper 
 # A @ A.T is a 3x3 matrix equal to the sum_i{(a_i)(a_i)T} (the sum of a_i's outer products)
