@@ -6,7 +6,7 @@ from stable_baselines3.common.vec_env import VecMonitor
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.logger import HParam
-from environment import SatDynEnv
+import environment as sat_env
 import subprocess
 
 # Terminal colors
@@ -179,10 +179,10 @@ def create_environment(model_name, initial_state=None, phase_name=None):
     # Create vectorized environment with 16 parallel instances
     if initial_state is not None:
         # Need to use a lambda to pass initial_state parameter
-        env = make_vec_env(lambda: SatDynEnv(initial_state=initial_state), n_envs=16)
+        env = make_vec_env(lambda: sat_env.SatDynEnv(initial_state=initial_state), n_envs=16)
 
     else:
-        env = make_vec_env(SatDynEnv, n_envs=16)
+        env = make_vec_env(sat_env.SatDynEnv, n_envs=16)
     
     # If phase name is available, use it in the monitor log filename
     if phase_name:
@@ -274,7 +274,7 @@ def create_or_load_model(env, continue_training, model_name, log_path):
     if not continue_training or not os.path.exists(latest_model_path):
         print(f"|-----{YELLOW_START}Creating new model from scratch...{COLOR_END}")
         model = SAC("MlpPolicy", env, learning_rate=1e-4, buffer_size=1_000_000, learning_starts=10_000, batch_size=256, gradient_steps=-1, policy_kwargs=dict(
-        net_arch=dict(pi=[512, 512], qf=[512, 512])), verbose=1, device='cuda',
+        net_arch=dict(pi=[256, 256], qf=[256, 256])), verbose=1, device='cuda',
                     tensorboard_log=log_path)  # Use absolute path for consistency
         
     return model, save_path, latest_model_path
