@@ -277,21 +277,20 @@ class SatDynEnv(gym.Env):
         torque_prev = self.state[15:19]  # store current torque before integration
 
         """ integrating using 4th-order RK method """
-        f1 = self.dt * sat_ode(self.state[:11], action * scale_torque, constants['Jtot'], constants['Jw'], constants['A'], constants['Z'])
+        f1 = self.dt * sat_ode(self.state[:11], action * scale_torque, constants['J_tot'], constants['J_w'], constants['A'], constants['Z'])
         
         # Normalize quaternion in intermediate steps to prevent drift with large torques
         temp_state2 = self.state[:11] + 0.5 * f1
         temp_state2[:4] = normalize_quaternion(temp_state2[:4])
-        f2 = self.dt * sat_ode(temp_state2, action * scale_torque, constants['Jtot'], constants['Jw'], constants['A'], constants['Z'])
+        f2 = self.dt * sat_ode(temp_state2, action * scale_torque, constants['J_tot'], constants['J_w'], constants['A'], constants['Z'])
         
         temp_state3 = self.state[:11] + 0.5 * f2
         temp_state3[:4] = normalize_quaternion(temp_state3[:4])
-        f3 = self.dt * sat_ode(temp_state3, action * scale_torque, constants['Jtot'], constants['Jw'], constants['A'], constants['Z'])
+        f3 = self.dt * sat_ode(temp_state3, action * scale_torque, constants['J_tot'], constants['J_w'], constants['A'], constants['Z'])
         
         temp_state4 = self.state[:11] + f3
         temp_state4[:4] = normalize_quaternion(temp_state4[:4])
-        f4 = self.dt * sat_ode(temp_state4, action * scale_torque, constants['Jtot'], constants['Jw'], constants['A'], constants['Z'])
-
+        f4 = self.dt * sat_ode(temp_state4, action * scale_torque, constants['J_tot'], constants['J_w'], constants['A'], constants['Z'])
         self.state[:11] = self.state[:11] + (f1 + 2 * f2 + 2 * f3 + f4)/6
 
         # Normalize quaternion after integration (critical for preventing acos NaN errors)
