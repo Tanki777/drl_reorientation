@@ -13,6 +13,10 @@ def create_simulation_env(initial_state):
 
 
 def action_schedule(t):
+    """
+    Yields an action based on the current time t.
+    Actions are between -1 and 1 and correspond to -0.0007 Nm and +0.0007 NM
+    """
     action = np.zeros(4)
 
     if 2.0 <= t < 10.0:
@@ -197,6 +201,7 @@ def plot_actual_attitude(simulation_data: dict):
     return
 
 if __name__ == "__main__":
+    # Set the torques in action_schedule()
     initial_state = [0.0, 0.0, 0.0, 0.0, 300] # [min_initial_angle, max_initial_angle, min_initial_angular_velocity, max_initial_angular_velocity, max_steps]
     env = create_simulation_env(initial_state)
     simulation_data = start_simulation(env)
