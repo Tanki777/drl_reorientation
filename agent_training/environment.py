@@ -16,7 +16,7 @@ constants = get_constants()
 kp = 50
 kd = 500
 
-scale_torque = constants['wheel_limit']
+scale_torque = constants['u_max']
 scale_torque_norm = np.sqrt(scale_torque**2 + scale_torque**2 + scale_torque**2 + scale_torque**2)
 
 
