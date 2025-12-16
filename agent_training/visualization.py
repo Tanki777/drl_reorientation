@@ -44,7 +44,7 @@ def print_rewards(model, eval_env, n_eval_episodes=10):
     print(f"Mean reward: {mean_reward:.2f} +/- {std_reward:.2f}")
 
 
-def simulate_agent(model: SAC, eval_env: SatDynEnv):
+def simulate_agent(model: SAC, eval_env: SatDynEnv, max_steps: int):
     """
     Simulate the agent in the evaluation environment.
     Inputs:
@@ -52,7 +52,7 @@ def simulate_agent(model: SAC, eval_env: SatDynEnv):
         eval_env: The evaluation environment.
     """
     # Arrays for storing data
-    times = np.linspace(0, 150, 150 * 10)
+    times = np.linspace(0, max_steps/10, max_steps)  # Assuming dt=0.1s
     states = []
     torques = []
     rewards = []
@@ -281,13 +281,14 @@ def plot_actual_attitude(simulation_data: dict):
 
 ### MAIN ###
 if __name__ == "__main__":
-    MODEL_NAME = "test_new_env_2_500000"
+    MODEL_NAME = "test_new_env_6_nan_3_1000000"
     model = load_agent(MODEL_NAME)
+    MAX_STEPS = 500
 
     # Set initial state for evaluation environment
-    INITIAL_STATE = [8.0, 8.0, 0.05, 0.05]  # [min_initial_angle, max_initial_angle, min_initial_angular_velocity, max_initial_angular_velocity]
+    INITIAL_STATE = [8.8, 8.8, 0.00, 0.00, MAX_STEPS]  # [min_initial_angle, max_initial_angle, min_initial_angular_velocity, max_initial_angular_velocity]
     eval_env = create_evaluation_env(INITIAL_STATE)
 
     print_rewards(model, eval_env, n_eval_episodes=10)
-    simulation_data = simulate_agent(model, eval_env)
+    simulation_data = simulate_agent(model, eval_env, MAX_STEPS)
     plot_actual_attitude(simulation_data)

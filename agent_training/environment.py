@@ -138,10 +138,10 @@ def reward_function(state, scale_torque_norm):
 
     if err_phi_current <= err_phi_prev:
         reward0 = (math.exp(-err_phi_current/(0.14 * 2 * np.pi)) - 0.05*(math.sqrt(torque_1**2 + torque_2**2 + torque_3**2 + torque_4**2)/scale_torque_norm) 
-        - 0.005*math.sqrt((torque_1 - torque_1_prev)**2 + (torque_2 - torque_2_prev)**2 + (torque_3 - torque_3_prev)**2 + (torque_4 - torque_4_prev)**2))
+        - 0.005*24.7*math.sqrt((torque_1 - torque_1_prev)**2 + (torque_2 - torque_2_prev)**2 + (torque_3 - torque_3_prev)**2 + (torque_4 - torque_4_prev)**2))
     else:
         reward0 = (math.exp(-err_phi_current/(0.14 * 2 * np.pi)) - 0.05*(math.sqrt(torque_1**2 + torque_2**2 + torque_3**2 + torque_4**2)/scale_torque_norm)
-        - 0.005*math.sqrt((torque_1 - torque_1_prev)**2 + (torque_2 - torque_2_prev)**2 + (torque_3 - torque_3_prev)**2 + (torque_4 - torque_4_prev)**2) - 1)
+        - 0.005*24.7*math.sqrt((torque_1 - torque_1_prev)**2 + (torque_2 - torque_2_prev)**2 + (torque_3 - torque_3_prev)**2 + (torque_4 - torque_4_prev)**2) - 1)
 
     if err_phi_current <= 0.25 * np.pi / 180:       # required attitude accuracy is satisfied
         return reward0 + 9
@@ -181,11 +181,13 @@ class SatDynEnv(gym.Env):
             self.max_initial_angle = 90.0  # degrees - maximum initial attitude error
             self.min_initial_angular_velocity = 0.0  # deg/s - minimum initial tumbling rate
             self.max_initial_angular_velocity = 0.1  # deg/s - maximum initial tumbling rate
+            self.max_steps = 1500
         else:
             self.min_initial_angle = initial_state[0]
             self.max_initial_angle = initial_state[1]
             self.min_initial_angular_velocity = initial_state[2]
             self.max_initial_angular_velocity = initial_state[3]
+            self.max_steps = initial_state[4]
         
         # Custom metrics tracking for TensorBoard
         self.initial_error_angle = 0.0
@@ -202,7 +204,7 @@ class SatDynEnv(gym.Env):
 
         # Define time step, step duration, and maximum steps
         self.dt = constants['dt']
-        self.max_steps = 1500
+        #self.max_steps = 1500
         self.steps = 0
         self.render_mode = render_mode
 
@@ -264,6 +266,8 @@ class SatDynEnv(gym.Env):
         self.episode_torques_prev = []
         self.settled = False
         self.settling_time = -1
+
+        self.state = np.nan_to_num(self.state, nan=0.0)
         
         return self.state, {}
 

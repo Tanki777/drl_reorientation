@@ -120,6 +120,7 @@ def do_scheduled_training(model_name, schedule, continue_training):
             phase.get("max_initial_error_angle", 30.0),
             phase.get("min_initial_angular_velocity", 0.0),
             phase.get("max_initial_angular_velocity", 0.1),
+            phase.get("max_steps", 500)
         ]
         timesteps_left = metadata["phases"][phase_index].get("timesteps_left", timesteps)
 
@@ -163,9 +164,9 @@ def do_scheduled_training(model_name, schedule, continue_training):
 
 if __name__ == "__main__":
     # Define which schedule to use
-    SCHEDULE_FILE_NAME = "test_schedule_2.json"
+    SCHEDULE_FILE_NAME = "test_schedule_6.json"
     CONTINUE_TRAINING = False
-    MODEL_NAME = "test_reward_new_rb_b256_v2"
+    MODEL_NAME = "test_new_env_6_nan_3"
 
     # Load the selected schedule
     schedule = load_schedule(SCHEDULE_FILE_NAME)
