@@ -85,7 +85,7 @@ def get_constants(): # Returns a dictionary with all constants needed by the saf
         # Physical parameters (for reference)
         'J_tot': J_tot,
         'A': A,
-        'Jw': Jw_matrix
+        'J_w': Jw_matrix
     }
     
     return constants
