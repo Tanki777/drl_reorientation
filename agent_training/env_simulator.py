@@ -20,7 +20,10 @@ def action_schedule(t):
     action = np.zeros(4)
 
     if 2.0 <= t < 10.0:
-        action[0] = 1
+        action[2] = 1
+
+    if 30.0 <= t < 38.0:
+        action[2] = -1
 
     return action
 
@@ -54,7 +57,8 @@ def start_simulation(env: SatDynEnv):
         "quaternion_norm": norm_q,
         "torques": torques_array,
         "omega": states_array[:, 4:7],
-        "times": times
+        "times": times,
+        "wheel_velocities": states_array[:, 7:11]
         }
     
     return simulation_data
@@ -71,6 +75,7 @@ def plot_actual_attitude(simulation_data: dict):
     norm_q = simulation_data["quaternion_norm"]
     torques_array = simulation_data["torques"]
     times = simulation_data["times"]
+    wheel_velocities = simulation_data["wheel_velocities"]
 
     def quat_to_axis_angle(q):
         """Convert quaternion to rotation axis and angle"""
@@ -161,6 +166,18 @@ def plot_actual_attitude(simulation_data: dict):
     ax2.grid(True)
     ax2.legend()
     ax2.set_yscale("log")
+
+    # Plot wheel velocities
+    ax3 = fig.add_subplot(233)
+    ax3.plot(times, wheel_velocities[:, 0], label="$\\omega_1$")
+    ax3.plot(times, wheel_velocities[:, 1], label="$\\omega_2$")
+    ax3.plot(times, wheel_velocities[:, 2], label="$\\omega_3$")
+    ax3.plot(times, wheel_velocities[:, 3], label="$\\omega_4$")
+    ax3.set_title("Wheel Velocities")
+    ax3.set_xlabel("Time (s)")
+    ax3.set_ylabel("$\\omega$ (rad/s)")
+    ax3.legend()
+    ax3.grid()
     
     # Plot quaternion
     ax4 = fig.add_subplot(234)
@@ -202,7 +219,7 @@ def plot_actual_attitude(simulation_data: dict):
 
 if __name__ == "__main__":
     # Set the torques in action_schedule()
-    initial_state = [0.0, 0.0, 0.0, 0.0, 300] # [min_initial_angle, max_initial_angle, min_initial_angular_velocity, max_initial_angular_velocity, max_steps]
+    initial_state = [0.0, 0.0, 0.0, 0.0, 600] # [min_initial_angle, max_initial_angle, min_initial_angular_velocity, max_initial_angular_velocity, max_steps]
     env = create_simulation_env(initial_state)
     simulation_data = start_simulation(env)
     plot_actual_attitude(simulation_data)
