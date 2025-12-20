@@ -182,12 +182,16 @@ class SatDynEnv(gym.Env):
             self.min_initial_angular_velocity = 0.0  # deg/s - minimum initial tumbling rate
             self.max_initial_angular_velocity = 0.1  # deg/s - maximum initial tumbling rate
             self.max_steps = 1500
+            self.min_half_angle_koz = 0.0  # degrees
+            self.max_half_angle_koz = 0.0  # degrees
         else:
             self.min_initial_angle = initial_state[0]
             self.max_initial_angle = initial_state[1]
             self.min_initial_angular_velocity = initial_state[2]
             self.max_initial_angular_velocity = initial_state[3]
             self.max_steps = initial_state[4]
+            self.min_half_angle_koz = initial_state[5]
+            self.max_half_angle_koz = initial_state[6]
         
         # Custom metrics tracking for TensorBoard
         self.initial_error_angle = 0.0
@@ -199,8 +203,7 @@ class SatDynEnv(gym.Env):
         self.settling_threshold_deg = 2.0  # degrees for considering "settled"
         self.settling_velocity_threshold = 0.01  # rad/s for angular velocity
         
-        # Set initial state (will be randomized in reset())
-        self.reset()
+        
 
         # Define time step, step duration, and maximum steps
         self.dt = constants['dt']
@@ -209,6 +212,9 @@ class SatDynEnv(gym.Env):
         self.render_mode = render_mode
 
         self.x_axis = np.array([1, 0, 0]) # For frame rendering
+
+        # Set initial state (will be randomized in reset())
+        self.reset()
 
     def _generate_random_quaternion(self, min_angle_deg, max_angle_deg):
         """Generate a random quaternion representing rotation within max_angle_deg from identity"""
@@ -228,6 +234,22 @@ class SatDynEnv(gym.Env):
         
         quaternion = np.array([q0, q_vec[0], q_vec[1], q_vec[2]], dtype=np.float32)
         return normalize_quaternion(quaternion)  # Normalize
+    
+    def _generate_keep_out_zone(self, initial_quaternion, min_half_angle_deg, max_half_angle_deg):
+        """
+        Generates a keep out zone defined by a normal vector and half-angle.
+        """
+        # Convert initial boresight quaternion to vector in inertial frame
+        initial_vector_boresight_inertial = rotate_vector_by_quaternion(self.x_axis, initial_quaternion) #r_F inertial frame
+
+        # Calculate normal vector of keep out zone to be the bisector (middle between initial boresight and target boresight, same plane)
+        # TODO: test edge case 180°
+        normal_vector_koz = normalize_vector(initial_vector_boresight_inertial + self.x_axis)
+
+        # Random half-angle between min and max
+        half_angle_koz = np.random.uniform(min_half_angle_deg, max_half_angle_deg) * np.pi / 180  # in radians
+
+        return normal_vector_koz, half_angle_koz
 
     def reset(self, seed=None, options=None):
         if seed is not None:
@@ -251,6 +273,9 @@ class SatDynEnv(gym.Env):
         omega_initial = (omega_magnitude * omega_direction).astype(np.float32)
 
         wheel_velocities_initial = np.zeros(4, dtype=np.float32)
+
+        # Generate keep out zone, vector in inertial frame (--> constant per episode), half angle in radians
+        self.normal_vector_koz, self.half_angle_koz = self._generate_keep_out_zone(q_array_initial, self.min_half_angle_koz, self.max_half_angle_koz)
         
         q0_prev = q_array_initial[0]
         omega_prev = omega_initial

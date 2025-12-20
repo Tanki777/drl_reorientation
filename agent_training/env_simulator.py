@@ -36,6 +36,8 @@ def start_simulation(env: SatDynEnv):
     times = np.linspace(0, env.max_steps/10, env.max_steps)  # Assuming dt=0.1s
     states= []
     torques = []
+    normal_vector_koz = env.normal_vector_koz
+    half_angle_koz = env.half_angle_koz
 
     done = False
     while not done:
@@ -58,14 +60,16 @@ def start_simulation(env: SatDynEnv):
         "torques": torques_array,
         "omega": states_array[:, 4:7],
         "times": times,
-        "wheel_velocities": states_array[:, 7:11]
+        "wheel_velocities": states_array[:, 7:11],
+        "normal_vector_koz": normal_vector_koz,
+        "half_angle_koz": half_angle_koz
         }
     
     return simulation_data
 
 
 def plot_actual_attitude(simulation_data: dict):
-    """Plot the ACTUAL satellite attitude trajectory based on rotation axis and angle phi"""
+    """Plot the actual satellite attitude trajectory based on rotation axis and angle phi"""
 
     matplotlib.use("TkAgg")
 
@@ -76,6 +80,8 @@ def plot_actual_attitude(simulation_data: dict):
     torques_array = simulation_data["torques"]
     times = simulation_data["times"]
     wheel_velocities = simulation_data["wheel_velocities"]
+    normal_vector_koz = simulation_data["normal_vector_koz"]
+    half_angle_koz = simulation_data["half_angle_koz"]
 
     def quat_to_axis_angle(q):
         """Convert quaternion to rotation axis and angle"""
@@ -135,9 +141,46 @@ def plot_actual_attitude(simulation_data: dict):
     
     # Plot trajectory on unit sphere (rotation axes are unit vectors)
     ax1.plot(body_axis_arr[:, 0], body_axis_arr[:, 1], body_axis_arr[:, 2], "b-", alpha=0.7, linewidth=3, label="Boresight Axis Trajectory")
-    ax1.scatter(body_axis_arr[0, 0], body_axis_arr[0, 1], body_axis_arr[0, 2], color="green", s=100, label="Start")
+    ax1.plot(body_axis_arr[0, 0], body_axis_arr[0, 1], body_axis_arr[0, 2], color="green", label="Start")
+    ax1.quiver(0, 0, 0, body_axis_arr[0, 0], body_axis_arr[0, 1], body_axis_arr[0, 2], color="green", arrow_length_ratio=0.1, linewidth=2)
     ax1.scatter(body_axis_arr[-1, 0], body_axis_arr[-1, 1], body_axis_arr[-1, 2], color="red", s=100, label="End")
     ax1.scatter(1, 0, 0, color="gold", s=150, marker="*", label="Target")
+
+    # DEBUG
+    print("Start vector:", body_axis_arr[0])
+    print("Angle between start and target (deg):", np.arccos(np.clip(np.dot(body_axis_arr[0], np.array([1,0,0])), -1.0, 1.0)) * 180 / np.pi)
+    
+    def _generate_keep_out_zone_circle():
+        # Create circle points for the keep out zone
+        theta = np.linspace(0, 2 * np.pi, 100)
+        circle_points = []
+        for angle in theta:
+            # Generate points on the circle in the plane perpendicular to the normal vector
+            v = np.array([np.cos(angle), np.sin(angle), 0])
+            # Rotate v to be perpendicular to koz_normal
+            if np.allclose(normal_vector_koz, [0, 0, 1]):
+                rot_axis = np.array([1, 0, 0])
+            else:
+                rot_axis = np.cross([0, 0, 1], normal_vector_koz)
+                rot_axis /= np.linalg.norm(rot_axis)
+            angle_to_rotate = np.arccos(np.dot(normal_vector_koz, [0, 0, 1]))
+            # Rodrigues' rotation formula
+            v_rotated = (v * np.cos(angle_to_rotate) +
+                        np.cross(rot_axis, v) * np.sin(angle_to_rotate) +
+                        rot_axis * np.dot(rot_axis, v) * (1 - np.cos(angle_to_rotate)))
+            # Scale to the radius of the keep out zone circle
+            radius = np.sin(half_angle_koz)
+            circle_point = normal_vector_koz * np.cos(half_angle_koz) + v_rotated * radius
+            circle_points.append(circle_point)
+
+        return circle_points
+
+    # Plot keep out zone as a ring on the unit sphere
+    if normal_vector_koz is not None and half_angle_koz is not None:
+        circle_points = _generate_keep_out_zone_circle()
+        circle_points = np.array(circle_points)
+        ax1.plot(circle_points[:, 0], circle_points[:, 1], circle_points[:, 2], "orange", linewidth=2, label="Keep Out Zone")
+    
     
     # Draw unit sphere wireframe
     u = np.linspace(0, 2 * np.pi, 20)
@@ -219,7 +262,9 @@ def plot_actual_attitude(simulation_data: dict):
 
 if __name__ == "__main__":
     # Set the torques in action_schedule()
-    initial_state = [0.0, 0.0, 0.0, 0.0, 600] # [min_initial_angle, max_initial_angle, min_initial_angular_velocity, max_initial_angular_velocity, max_steps]
+
+    # [min_initial_angle, max_initial_angle, min_initial_angular_velocity, max_initial_angular_velocity, max_steps, min_half_angle_koz, max_half_angle_koz]
+    initial_state = [90.0, 90.0, 0.0, 0.0, 600, 20.0, 20.0] 
     env = create_simulation_env(initial_state)
     simulation_data = start_simulation(env)
     plot_actual_attitude(simulation_data)
