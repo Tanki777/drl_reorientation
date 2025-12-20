@@ -18,37 +18,43 @@ w_max = 628.3 # Max wheel speed [rad/s] (for M1omega calculation)
 xi_max = 1e-5 # Max disturbance torque [N·m]
 e_max = 5.092e-5 # Max allowed kinetic energy [kg·m²/s²]
 
-
 dt = 0.1  # Control timestep (how often do we update) [seconds]
 
 
 ### POINTING CONSTRAINT PARAMETERS
-
 r_F = np.array([1, 0, 0]) # Boresight vector in body frame
 
 # CBF parameters
-#mu = ???        # Barrier function parameter
-#delta_2 = ???   # Lower constraint threshold (lowercase delta)
-#Delta_2 = ???   # Upper constraint threshold (uppercase Delta)
-#M2plus = ???    # Second derivative bound
-#M3plus = ???    # Third derivative bound
-
+mu = 0.00167          
+M2plus  =  1.64e-4
+M2minus = -1.64e-4 
+M3plus  =  6.2e-3  
+M3minus = -6.2e-3
 
 ### COMPUTED PARAMETERS (Don't edit these, they're auto-calculated)
 
 Jw_matrix = np.diag([J_w, J_w, J_w, J_w]) # turns scalar J_w value into 4x4 diagonal matrix
     
 # Build Z matrix
-top = np.hstack([J_tot, A @ Jw_matrix])              # top dimension   : (3x3) + (3x4)(4x4) = (3x3) + (3x4) = (3x7)
+top = np.hstack([J_tot, A @ Jw_matrix])             # top dimension   : (3x3) + (3x4)(4x4) = (3x3) + (3x4) = (3x7)
 bottom = np.hstack([Jw_matrix @ A.T, Jw_matrix])    # bottom dimension: (4x4)(4x3) + (4x4) = (4x3) + (4x4) = (4x7)
 M = np.vstack([top, bottom])                        # total dimension : (7x7) matrix 
 Z = np.linalg.inv(M)                                # Z is also (7x7) as the inverse of M
     
 Je = np.linalg.inv(Z[0:3, 0:3]) # used for constraintE
+
+#calculate δ1 from 2023 paper's eq.(24)
+tau = np.linspace(0.0, dt, 10001) # discretize the range [0,dt] (dt is the same as [0,T] in (24)), (10000 divisions)
+expr1 = 0.5*(mu + M2plus - M2minus)*(dt - tau)**2 - (1/6)*M3minus*(dt - tau)**3 # 1st expression array
+expr2 = 0.5*(mu + M2plus - M2minus)*tau**2 + (1/6)*M3plus*tau**3 # 2nd expression array
+delta1 = np.max(np.minimum(expr1, expr2)) # finds the single max value of the min(expr1,expr2) array
+
+delta_2 = delta1 # as seen in one paragraph below the paper's eq.(25):
+Delta_2 = delta1 # "It follows from Theorem 1 that one valid combination is Δ2 = δ2 = δ1"
     
-# Compute M1omega from wheel parameters
-M1omega = 2 * w_max * u_max * np.sqrt(Je[0,0] / Je[2,2])    
-M2omega = 1.95e-5 # Fixed value from paper
+# M1omega and M2omega are used in ConstraintE
+M1omega = 2 * w_max * u_max * np.sqrt(Je[0,0] / Je[2,2]) # Compute M1omega from wheel parameters
+M2omega = 1.95e-5 # Fixed value from paper, and same in their code
 
 
 ### EXPORT AS DICTIONARY
@@ -61,16 +67,16 @@ def get_constants(): # Returns a dictionary with all constants needed by the saf
         
         # Energy constraint
         'e_max': e_max,
-        #'M1omega': M1omega,
+        'M1omega': M1omega,
         'M2omega': M2omega,
         
         # Pointing constraint
         'r_F' : r_F,
-        #'mu': mu,
-        #'delta_2': delta_2,
-        #'Delta_2': Delta_2,
-        #'M2plus': M2plus,
-        #'M3plus': M3plus,
+        'mu': mu,
+        'M2plus': M2plus,
+        'M3plus': M3plus,
+        'delta_2': delta_2,
+        'Delta_2': Delta_2,
         
         # Control parameters
         'dt': dt,
