@@ -138,10 +138,10 @@ def reward_function(state, scale_torque_norm):
 
     if err_phi_current <= err_phi_prev:
         reward0 = (math.exp(-err_phi_current/(0.14 * 2 * np.pi)) - 0.05*(math.sqrt(torque_1**2 + torque_2**2 + torque_3**2 + torque_4**2)/scale_torque_norm) 
-        - 0.005*24.7*math.sqrt((torque_1 - torque_1_prev)**2 + (torque_2 - torque_2_prev)**2 + (torque_3 - torque_3_prev)**2 + (torque_4 - torque_4_prev)**2))
+        - 0.005*2470.0*math.sqrt((torque_1 - torque_1_prev)**2 + (torque_2 - torque_2_prev)**2 + (torque_3 - torque_3_prev)**2 + (torque_4 - torque_4_prev)**2))
     else:
         reward0 = (math.exp(-err_phi_current/(0.14 * 2 * np.pi)) - 0.05*(math.sqrt(torque_1**2 + torque_2**2 + torque_3**2 + torque_4**2)/scale_torque_norm)
-        - 0.005*24.7*math.sqrt((torque_1 - torque_1_prev)**2 + (torque_2 - torque_2_prev)**2 + (torque_3 - torque_3_prev)**2 + (torque_4 - torque_4_prev)**2) - 1)
+        - 0.005*2470.0*math.sqrt((torque_1 - torque_1_prev)**2 + (torque_2 - torque_2_prev)**2 + (torque_3 - torque_3_prev)**2 + (torque_4 - torque_4_prev)**2) - 1)
 
     if err_phi_current <= 0.25 * np.pi / 180:       # required attitude accuracy is satisfied
         return reward0 + 9
