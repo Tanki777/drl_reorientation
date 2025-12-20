@@ -216,24 +216,45 @@ class SatDynEnv(gym.Env):
         # Set initial state (will be randomized in reset())
         self.reset()
 
-    def _generate_random_quaternion(self, min_angle_deg, max_angle_deg):
-        """Generate a random quaternion representing rotation within max_angle_deg from identity"""
+    def _generate_quaternion_with_vector_angle(self, reference_vector, min_angle_deg, max_angle_deg):
+        """
+        Generate a quaternion that rotates the reference_vector by an angle between 
+        min_angle_deg and max_angle_deg in a random direction.
+        
+        Args:
+            reference_vector: The vector to rotate (e.g., [1, 0, 0])
+            min_angle_deg: Minimum angle (degrees) between original and rotated vector
+            max_angle_deg: Maximum angle (degrees) between original and rotated vector
+            
+        Returns:
+            quaternion: A quaternion [w, x, y, z] that rotates reference_vector by the desired angle
+        """
         if max_angle_deg == 0:
             return np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32)
         
-        # Random rotation angle between min_angle_deg and max_angle_deg
-        angle = np.random.uniform(min_angle_deg * np.pi / 180, max_angle_deg * np.pi / 180)
+        # Normalize the reference vector
+        ref_vec = np.array(reference_vector, dtype=np.float32)
+        ref_vec = ref_vec / np.linalg.norm(ref_vec)
         
-        # Random rotation axis (uniformly distributed on unit sphere)
-        axis = np.random.randn(3)
-        axis = axis / np.linalg.norm(axis)
+        # Random angle between min and max
+        angle_rad = np.random.uniform(min_angle_deg * np.pi / 180, max_angle_deg * np.pi / 180)
+        
+        # Generate a random axis perpendicular to the reference vector
+        # Method: Generate random vector, then project out the parallel component
+        random_vec = np.random.randn(3)
+        # Remove component parallel to reference vector
+        parallel_component = np.dot(random_vec, ref_vec) * ref_vec
+        perpendicular_vec = random_vec - parallel_component
+        
+        # Normalize to get the rotation axis
+        axis = perpendicular_vec / np.linalg.norm(perpendicular_vec)
         
         # Convert axis-angle to quaternion
-        q0 = np.cos(angle / 2)
-        q_vec = np.sin(angle / 2) * axis
+        q0 = np.cos(angle_rad / 2)
+        q_vec = np.sin(angle_rad / 2) * axis
         
         quaternion = np.array([q0, q_vec[0], q_vec[1], q_vec[2]], dtype=np.float32)
-        return normalize_quaternion(quaternion)  # Normalize
+        return normalize_quaternion(quaternion)
     
     def _generate_keep_out_zone(self, initial_quaternion, min_half_angle_deg, max_half_angle_deg):
         """
@@ -256,7 +277,7 @@ class SatDynEnv(gym.Env):
             np.random.seed(seed)
         
         # Generate random initial attitude error (0° to max_initial_angle)
-        q_array_initial = self._generate_random_quaternion(self.min_initial_angle, self.max_initial_angle)
+        q_array_initial = self._generate_quaternion_with_vector_angle(self.x_axis, self.min_initial_angle, self.max_initial_angle)
         
         # Generate random initial angular velocities
         omega_min_rad = self.min_initial_angular_velocity * np.pi / 180  # Convert to rad/s
