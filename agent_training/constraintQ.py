@@ -2,7 +2,20 @@ import numpy as np
 from scipy.optimize import fsolve
 from constants import get_constants
 
-absSq = lambda x: x * np.abs(x) # paper's "ssq" function used in eq. (13) & (28)
+constants = get_constants()
+
+absSq = lambda x: x * np.abs(x) # 2023 paper's "ssq" function used in eq. (13) & (28)
+
+def R(q): # quaternion rotation matrix
+    w, x, y, z = q
+    return np.array([[1 - 2*(y*y + z*z),   2*(x*y - z*w),       2*(x*z + y*w)    ],
+                     [2*(x*y + z*w),       1 - 2*(x*x + z*z),   2*(y*z - x*w)    ],
+                     [2*(x*z - y*w),       2*(y*z + x*w),       1 - 2*(x*x + y*y)]], np.float32)
+
+def skew(v): # 3x3 skew-symmetric matrix, skew(v) * x = v cross x, used for phi
+    return np.array([[ 0,   -v[2],  v[1]],
+                     [ v[2], 0,    -v[0]],
+                     [-v[1], v[0],  0   ]], np.float32)
 
 def k(t, state, M_F):    # k = q^T M_F q, M_F is from Eq. (8) in "Engineering Notes" paper
     q = state[0:4].astype(np.float32)
@@ -14,15 +27,27 @@ def kdot(t, state, M_F, omega_cross): # kdot = q^T M_F Ω(ω) q
     kdot = q.T @ M_F @ omega_cross @ q
     return kdot.astype(np.float32)
 
-def kdotdot(t, state, M_F, omega_cross, omega_dot_cross): # kdotdot = 1/2 q^T Ω^T(ω) M_F Ω(ω) q  +  q^T M_F Ω(ωdot) q  +  1/2 q^T M_F Ω^2(ω) q 
-    q = state[0:4].astype(np.float32)
-    kdotdot = 1/2*(q.T @ omega_cross.T @ M_F @ omega_cross @ q)+(q.T @ M_F @ omega_dot_cross @ q) + 1/2*(q.T @ M_F @ omega_cross @ omega_cross @ q)
-    return kdotdot.astype(np.float32) # possible optimisation of 3rd term: Ω^2(ω)=(-|ω|^2)I_4=-(ω1^2+ω2^2+ω3^2)I_4, where I_4 = 4x4 identity matrix    
-# For no disturbances (xi=0), kdotdot is the 2023 paper code's 'phi' function. 
-# Otherwise phi is the component of kdotdot that is certain (eq.(19) 2023 paper), and the implementation is different
+def phi(t, state, u, r_F, constants): # r_F: boresight vector in body frame
+    q     = state[0:4]     # attitude quaternion
+    omega = state[4:7]     # angular velocity
+    w     = state[7:11]    # wheel velocities 
+    wheel_positions = constants['A'] # to avoid confusion with constraint output A. 3x4 matrix
+    Z = constants['Z']
+    Jtot = constants['J_tot']
+    J_w = constants['J_w'] # 4x4 matrix
+
+    #TODO ADD n_F
+    s = R(q).T @ n_F      #n_F: inertial sun direction (constant)
+
+    # dynamics eq (2b) to get omegadot for given u and state
+    omegadot = Z[0:3, :] @ np.concatenate([-np.cross(omega, Jtot @ omega + wheel_positions @ J_w @ w) , u])
+
+    # same as matlab code for their sdot = sdotdot = 0
+    phi = s @ (skew(omega) @ (skew(omega) @ r_F)) - s @ (skew(r_F) @ omegadot) 
+    return phi.astype(np.float32)
 
 
-def constraintQ(t, state, constants, index, outdata, omega_dot):
+def constraintQ(t, state, constants, index, outdata):
 # Returns the A and b constraint matrices for ensuring avoidance is achieved.
 # Results should be fed into QP as  A*u ≤ b (QP probably Quadratic Programming (argmin part?) in CalculateU.m)
 
@@ -37,16 +62,11 @@ def constraintQ(t, state, constants, index, outdata, omega_dot):
     M_F = np.block([[m1, m2.reshape(1, -1)], # Build M_F matrix
                 [m2.reshape(-1, 1), A_mf]]).astype(np.float32)
 
-# Ω(ω) matrix from eq. (2a) 2023 paper, used for kdot and kdotdot
-    def omega_cross_matrix(omega):
-        return np.array([[0,        -omega[0], -omega[1], -omega[2]],
-                         [omega[0],  0,         omega[2], -omega[1]],
-                         [omega[1], -omega[2],  0,         omega[0]],
-                         [omega[2],  omega[1], -omega[0],  0       ]], np.float32)
-
     omega = state[4:7].astype(np.float32)   # gets current values from state
-    omega_cross = omega_cross_matrix(omega) # calculates Ω(ω) with current values
-    omega_dot_cross = omega_cross_matrix(omega_dot) ## calculates Ω(ωdot). omega_dot was passed as arguement of constraintQ
+    omega_cross = np.array([[0,        -omega[0], -omega[1], -omega[2]], # calculates Ω(ω) with current values
+                            [omega[0],  0,         omega[2], -omega[1]], # used for kdot
+                            [omega[1], -omega[2],  0,         omega[0]],
+                            [omega[2],  omega[1], -omega[0],  0       ]], np.float32) 
 
     dt      = constants['dt']
     M2plus  = constants['M2plus']
@@ -56,22 +76,18 @@ def constraintQ(t, state, constants, index, outdata, omega_dot):
     Delta_2 = constants['Delta_2']
 
 # Store k and kdot
-    outdata['k'][index] = k(t, state, M_F)                      # Assuming outdata['k'] is an array/list
-    outdata['kdot'][index] = kdot(t, state, M_F, omega_cross)   # same
+    outdata['k'][index] = k(t, state, M_F)
+    outdata['kdot'][index] = kdot(t, state, M_F, omega_cross)
 
 ### eq. (13)
     h = outdata['k'][index] + absSq(outdata['kdot'][index]) / (2 *mu)
     
-    if h > 0:
-        print('Excessive H')
-# Assuming k is a dictionary/array accessible within outdata Note: MATLAB's 'outdata.h' might be an array, 
-# which means the comparison should be done carefully if it's meant to check the whole array. 
-# translated to python as a check on the *current* k value at the given index, unless 'outdata.h' was meant to be the full array.
+    if h > 0: #???? figure out difference between h and H at Constraint.m  
+        print('Excessive H')   
 
     if outdata['k'][index] > 0:
-        print('Excessive h') #???? figure out difference between h and H at Constraint.m        
-    outdata['H'][index] = h # Store the calculated ????
-
+        print('Excessive h')     
+    outdata['H'][index] = h
 
 
 ### eq. (27)
@@ -85,11 +101,10 @@ def constraintQ(t, state, constants, index, outdata, omega_dot):
         print(f"fsolve failed for phi_req1: {e}")
         phi_req1 = 0 # Default or error value
 
-### phi(t,state,[0;0;0;0],p) IS THE ZERO CONTROL INPUT(no torques).
+### phi call with u_zero is the ZERO control input (no torques).
 ### so b1 = phi_req1 - phi_zero = "how much MORE we need beyond zero control"(?)
     u_zero = np.array([0, 0, 0, 0])
-    b1 = phi_req1 - phi(t, state, u_zero, r_F)
-
+    b1 = phi_req1 - phi(t, state, u_zero, r_F, constants)
 
 
 ### eq. (28)
@@ -103,15 +118,13 @@ def constraintQ(t, state, constants, index, outdata, omega_dot):
         phi_req2 = 0 # Default or error value
 
 ### "how much MORE we need beyond zero control"(?)
-    b2 = phi_req2 - phi(t, state, u_zero, r_F)
-
+    b2 = phi_req2 - phi(t, state, u_zero, r_F, constants)
 
 ### takes the min. of the b1 and b2 - whichever is more restrictive (smaller value satisfies both constraints)(?)
     b = np.min([b1, b2])
 
 
-
-# Calculate A Using a numerical gradient for phi because it's linear rather than writing another function to compute it.
+# Calculate A using a numerical gradient for phi, because it's linear rather than writing another function to compute it.
     A = np.zeros(4)
     for i in range(4):
         dist = 1.0 # arbitrary since it is linear
@@ -119,7 +132,7 @@ def constraintQ(t, state, constants, index, outdata, omega_dot):
         f = np.copy(e) # Use np.copy to prevent modification of e
         f[i] = dist
     # Note: The original phi function must accept a 4-element array/list for the control input u
-        A[i] = (phi(t, state, f, r_F) - phi(t, state, e, r_F)) / dist
+        A[i] = (phi(t, state, f, r_F, constants) - phi(t, state, e, r_F, constants)) / dist
 
 # A should be returned as a 1D array of 4 elements or converted to a 2D array (1x4) depending on the expected 
 # format for the QP solver. Will return it as a 1D numpy array for simplicity, as it's the result of the loop.
