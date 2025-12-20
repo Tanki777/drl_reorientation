@@ -1,6 +1,5 @@
 import numpy as np
 from scipy.optimize import minimize
-from scipy.io import loadmat
 import time
 from constraintQ import constraintQ
 from constraintE import constraintE
@@ -25,10 +24,7 @@ def initialize():
     initialized = True # Set flag to True
 
 
-def safety_filter(wheels_desired, t, x):    
-#Parameters: #wheels_desired: np.array (4,) desired wheel torques from any controller
-#t: float, current time, x: np.array (7,), current state [quaternion (4), angular_velocity (3)]    
-#Returns: u_safe : np.array (4,), safe control that respects all constraints
+def safety_filter(wheels_desired, t, state): # gets control input, returns safe one
 
     initialize()
     global constants, outdata
@@ -36,8 +32,8 @@ def safety_filter(wheels_desired, t, x):
     start = time.time()
     
 # Compute constraints
-    H0, A0, b0 = constraintE(t, x, constants, 0, outdata)  # Energy constraint
-    A1, b1 = constraintQ(t, x, constants, 1, outdata, omega_dot)  # Pointing constraint
+    H0, A0, b0 = constraintE(t, state, constants, 0, outdata)  # Energy constraint
+    A1, b1 = constraintQ(t, state, constants, 1, outdata)  # Pointing constraint
 # WARNING on the line above omega_dot is not defined! Where should it come from? 
 # Should SafetyFilter compute it from current state, or pass None and let constraintQ handle it?
     
@@ -71,7 +67,7 @@ def safety_filter(wheels_desired, t, x):
                         constraints=[linear_constraint, nonlin_constraint],
                         options={'disp': False, 'ftol': 1e-8})
         
-        u_safe = result.x / scale
+        u_safe = result.x / scale #VERIFY
         status = 1 if result.success else 0
         
     except Exception as e:
