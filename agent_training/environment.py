@@ -18,6 +18,8 @@ kd = 500
 
 scale_torque = constants['u_max']
 scale_torque_norm = np.sqrt(scale_torque**2 + scale_torque**2 + scale_torque**2 + scale_torque**2)
+scale_angular_velocity_sat = 300.0
+scale_angular_velocity_wheels = 300.0
 
 
 @njit
@@ -168,8 +170,8 @@ class SatDynEnv(gym.Env):
         #   omega_1_prev, omega_2_prev, omega_3_prev, torque_1, torque_2, torque_3, torque_4, 
         #   torque_1_prev, torque_2_prev, torque_3_prev, torque_4_prev]
         # previous q0 is augmented in the state vector since it will be used in the reward function.
-        self.observation_space = spaces.Box(low= np.array([-1, -1, -1, -1, -300, -300, -300, -300, -300, -300, -300, -1, -300, -300, -300, -scale_torque, -scale_torque, -scale_torque, -scale_torque, -scale_torque, -scale_torque, -scale_torque, -scale_torque], dtype=np.float32),
-                                            high= np.array([1, 1, 1, 1, 300, 300, 300, 300, 300, 300, 300, 1, 300, 300, 300, scale_torque, scale_torque, scale_torque, scale_torque, scale_torque, scale_torque, scale_torque, scale_torque], dtype=np.float32),
+        self.observation_space = spaces.Box(low= np.array([-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1], dtype=np.float32),
+                                            high= np.array([1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], dtype=np.float32),
                                             dtype= np.float32)
 
         # Initial state
@@ -315,7 +317,13 @@ class SatDynEnv(gym.Env):
 
         self.state = np.nan_to_num(self.state, nan=0.0)
         
-        return self.state, {}
+        # Normalize observation
+        obs = self.state.copy()
+        obs[4:7] = obs[4:7] / scale_angular_velocity_sat  # Normalize satellite angular velocity
+        obs[7:11] = obs[7:11] / scale_angular_velocity_wheels  # Normalize wheel velocities
+        obs[12:15] = obs[12:15] / scale_angular_velocity_sat  # Normalize previous angular velocity
+        
+        return obs.astype(np.float32), {}
 
     def step(self, action):
         q0_prev = self.state[0]     # store current q0 before integration
@@ -357,8 +365,12 @@ class SatDynEnv(gym.Env):
         self.episode_torques.append(np.linalg.norm(applied_torque))
         self.episode_torques_prev.append(np.linalg.norm(torque_prev))
 
-        # Explicitly cast the state to float32 before returning
-        obs = self.state.astype(np.float32)
+        # Normalize observation
+        obs = self.state.copy()
+        obs[4:7] = obs[4:7] / scale_angular_velocity_sat  # Normalize satellite angular velocity
+        obs[7:11] = obs[7:11] / scale_angular_velocity_wheels  # Normalize wheel velocities
+        obs[12:15] = obs[12:15] / scale_angular_velocity_sat  # Normalize previous angular velocity
+        obs = obs.astype(np.float32)
         
         # Check settling condition
         current_error_deg = 2 * math.acos(min(max(abs(self.state[0]), 0.0), 1.0)) * 180 / np.pi
