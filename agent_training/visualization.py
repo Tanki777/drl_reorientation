@@ -264,7 +264,6 @@ def plot_actual_attitude(simulation_data: dict):
     ax6.plot(times, torques_array[:, 0], label="$\\tau_1$")
     ax6.plot(times, torques_array[:, 1], label="$\\tau_2$")
     ax6.plot(times, torques_array[:, 2], label="$\\tau_3$")
-    ax6.plot(times, torques_array[:, 3], label="$\\tau_4$")
     ax6.set_title("Control torques")
     ax6.set_xlabel("Time (s)")
     ax6.set_ylabel("$\\tau$ (Nm)")
@@ -281,12 +280,12 @@ def plot_actual_attitude(simulation_data: dict):
 
 ### MAIN ###
 if __name__ == "__main__":
-    MODEL_NAME = "test_new_env_6_nan_3_1000000"
+    MODEL_NAME = "test_new_env_7_basic_corr_4300000"
     model = load_agent(MODEL_NAME)
-    MAX_STEPS = 500
+    MAX_STEPS = 1000
 
     # Set initial state for evaluation environment
-    INITIAL_STATE = [8.8, 8.8, 0.00, 0.00, MAX_STEPS]  # [min_initial_angle, max_initial_angle, min_initial_angular_velocity, max_initial_angular_velocity]
+    INITIAL_STATE = [4.8, 4.8, 0.00, 0.00, MAX_STEPS]  # [min_initial_angle, max_initial_angle, min_initial_angular_velocity, max_initial_angular_velocity]
     eval_env = create_evaluation_env(INITIAL_STATE)
 
     print_rewards(model, eval_env, n_eval_episodes=10)

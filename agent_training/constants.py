@@ -6,9 +6,10 @@ J_b = np.diag([0.1672, 0.1259, 0.06121])  # Body's moment of inertia (no wheels)
 
 J_w = 0.00001722  # One wheel's moment of inertia [kg·m²]
 
-A=np.array([[0.0,  0.0,    0.8165, -0.8165],  # Wheel positions matrix (in body frame)
-            [0.0, -0.9428, 0.4714,  0.4714],    # each collumn is one a_i, like in 2023 paper 
-            [-1.0, 0.3333, 0.3333,  0.3333]])  
+# Using only 3 reaction wheels (deactivating the 4th wheel for simplified training)
+A=np.array([[0.0,  0.0,    0.8165],  # Wheel positions matrix (in body frame) - only first 3 wheels
+            [0.0, -0.9428, 0.4714],    # each column is one a_i, like in 2023 paper 
+            [-1.0, 0.3333, 0.3333]])   # 4th wheel is permanently deactivated  
 
 J_tot = J_b + J_w * A @ A.transpose()  # see 3 lines above eq. (2a) in 2023 paper 
 # A @ A.T is a 3x3 matrix equal to the sum_i{(a_i)(a_i)T} (the sum of a_i's outer products)
@@ -33,13 +34,13 @@ M3minus = -6.2e-3
 
 ### COMPUTED PARAMETERS (Don't edit these, they're auto-calculated)
 
-Jw_matrix = np.diag([J_w, J_w, J_w, J_w]) # turns scalar J_w value into 4x4 diagonal matrix
+Jw_matrix = np.diag([J_w, J_w, J_w])  # turns scalar J_w value into 3x3 diagonal matrix (only 3 wheels)
     
 # Build Z matrix
-top = np.hstack([J_tot, A @ Jw_matrix])             # top dimension   : (3x3) + (3x4)(4x4) = (3x3) + (3x4) = (3x7)
-bottom = np.hstack([Jw_matrix @ A.T, Jw_matrix])    # bottom dimension: (4x4)(4x3) + (4x4) = (4x3) + (4x4) = (4x7)
-M = np.vstack([top, bottom])                        # total dimension : (7x7) matrix 
-Z = np.linalg.inv(M)                                # Z is also (7x7) as the inverse of M
+top = np.hstack([J_tot, A @ Jw_matrix])             # top dimension   : (3x3) + (3x3)(3x3) = (3x3) + (3x3) = (3x6)
+bottom = np.hstack([Jw_matrix @ A.T, Jw_matrix])    # bottom dimension: (3x3)(3x3) + (3x3) = (3x3) + (3x3) = (3x6)
+M = np.vstack([top, bottom])                        # total dimension : (6x6) matrix 
+Z = np.linalg.inv(M)                                # Z is also (6x6) as the inverse of M
     
 Je = np.linalg.inv(Z[0:3, 0:3]) # used for constraintE
 
