@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib
 
-from environment import SatDynEnv, scale_torque
+from environment import SatDynEnv, scale_torque, scale_angular_velocity_sat, scale_angular_velocity_wheels
 
 def create_simulation_env(initial_state):
     """
@@ -58,9 +58,9 @@ def start_simulation(env: SatDynEnv):
         "quaternion": states_array[:, :4],
         "quaternion_norm": norm_q,
         "torques": torques_array,
-        "omega": states_array[:, 4:7],
+        "omega": states_array[:, 4:7]*scale_angular_velocity_sat,
         "times": times,
-        "wheel_velocities": states_array[:, 7:11],
+        "wheel_velocities": states_array[:, 7:10]*scale_angular_velocity_wheels,
         "normal_vector_koz": normal_vector_koz,
         "half_angle_koz": half_angle_koz
         }

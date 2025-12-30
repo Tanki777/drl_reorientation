@@ -90,8 +90,10 @@ def sat_ode(state, torque, inertia_total, inertia_wheels, wheels_position_matrix
     inertia_combined_inv = inertia_combined_inv.astype(np.float32)
 
     q_quat = state[:4].astype(np.float32)  # Quaternion
-    omega = state[4:7].astype(np.float32)
-    wheel_velocities = state[7:10].astype(np.float32)  # Only 3 wheels
+
+    # State is normalized, need rescaling
+    omega = (state[4:7]*scale_angular_velocity_sat).astype(np.float32)
+    wheel_velocities = (state[7:10]*scale_angular_velocity_wheels).astype(np.float32)  # Only 3 wheels
 
     # from paper 2023 equation 2a
     omega_cross = np.array([[0, -omega[0], -omega[1], -omega[2]],
@@ -119,13 +121,13 @@ def sat_ode(state, torque, inertia_total, inertia_wheels, wheels_position_matrix
 @njit
 def reward_function(state, scale_torque_norm):
     q0_current = state[0]
-    q0_prev = state[10]  # Adjusted index for 3 wheels
-    torque_1 = state[13]  # Adjusted index
-    torque_2 = state[14]  # Adjusted index
-    torque_3 = state[15]  # Adjusted index (only 3 wheels now)
-    torque_1_prev = state[16]  # Adjusted index
-    torque_2_prev = state[17]  # Adjusted index
-    torque_3_prev = state[18]  # Adjusted index (only 3 wheels now)
+    q0_prev = state[10]  
+    torque_1 = state[14]*scale_torque  
+    torque_2 = state[15]*scale_torque  
+    torque_3 = state[16]*scale_torque  
+    torque_1_prev = state[17]*scale_torque  
+    torque_2_prev = state[18]*scale_torque  
+    torque_3_prev = state[19]*scale_torque 
     scale_torque_norm = np.float32(scale_torque_norm)
     
     # Clamp q0 values to [-1, 1] to prevent acos() domain errors (NaN) with large torques
@@ -161,7 +163,6 @@ class SatDynEnv(gym.Env):
 
         # Define action space as [torque_1, torque_2, torque_3]  (torques of 3 reaction wheels - 4th wheel deactivated)
         # Value range [-scale_torque, scale_torque] for each component
-        """ TO DO: to normalize the action space"""
         self.action_space = spaces.Box(low=-1, high=1, shape=(3,), dtype=np.float32)
 
         # Define observation space: [q, omega, wheel_velocities, q0_prev, omega_prev, torque, torque_prev]
@@ -328,7 +329,7 @@ class SatDynEnv(gym.Env):
     def step(self, action):
         q0_prev = self.state[0]     # store current q0 before integration
         omega_prev = self.state[4:7]  # store current omega before integration
-        torque_prev = self.state[13:16]  # store current torque before integration (adjusted for 3 wheels)
+        torque_prev = self.state[14:17]  # store current torque before integration (adjusted for 3 wheels)
 
         """ integrating using 4th-order RK method """
         f1 = self.dt * sat_ode(self.state[:10], action * scale_torque, constants['J_tot'], constants['J_w'], constants['A'], constants['Z'])
@@ -345,36 +346,34 @@ class SatDynEnv(gym.Env):
         temp_state4 = self.state[:10] + f3
         temp_state4[:4] = normalize_quaternion(temp_state4[:4])
         f4 = self.dt * sat_ode(temp_state4, action * scale_torque, constants['J_tot'], constants['J_w'], constants['A'], constants['Z'])
-        self.state[:10] = self.state[:10] + (f1 + 2 * f2 + 2 * f3 + f4)/6
 
-        # Normalize quaternion after integration (critical for preventing acos NaN errors)
-        self.state[:4] = normalize_quaternion(self.state[:4])
-
+        state_change = (f1 + 2 * f2 + 2 * f3 + f4)/6
+        state_change[:4] = normalize_quaternion(state_change[:4])  # Normalize quaternion change
+        state_change[4:7] = state_change[4:7] / scale_angular_velocity_sat  # Normalize omega change
+        state_change[7:10] = state_change[7:10] / scale_angular_velocity_wheels  # Normalize wheel velocities change
+        
+        # Update state
+        self.state[:10] = self.state[:10] + state_change
         self.state[10] = q0_prev
         self.state[11:14] = omega_prev
-        self.state[16:19] = torque_prev
-        applied_torque = action * scale_torque
-        self.state[13:16] = applied_torque
+        self.state[17:20] = torque_prev
+        self.state[14:17] = action * scale_torque
         
 
         # Calculate reward
         reward = reward_function(self.state, scale_torque_norm)
         
         # Track custom metrics
-        
-        self.episode_torques.append(np.linalg.norm(applied_torque))
-        self.episode_torques_prev.append(np.linalg.norm(torque_prev))
+        self.episode_torques.append(np.linalg.norm(action * scale_torque))
+        self.episode_torques_prev.append(np.linalg.norm(torque_prev * scale_torque))
 
-        # Normalize observation
-        obs = self.state.copy()
-        obs[4:7] = obs[4:7] / scale_angular_velocity_sat  # Normalize satellite angular velocity
-        obs[7:10] = obs[7:10] / scale_angular_velocity_wheels  # Normalize wheel velocities (3 wheels)
-        obs[11:14] = obs[11:14] / scale_angular_velocity_sat  # Normalize previous angular velocity
-        obs = obs.astype(np.float32)
+        # Cast observation to float32
+        obs = self.state.astype(np.float32)
+     
         
         # Check settling condition
         current_error_deg = 2 * math.acos(min(max(abs(self.state[0]), 0.0), 1.0)) * 180 / np.pi
-        current_omega_mag = np.linalg.norm(self.state[4:7])
+        current_omega_mag = np.linalg.norm(self.state[4:7]*scale_angular_velocity_sat)
         
         if (not self.settled and 
             current_error_deg < self.settling_threshold_deg and 
@@ -412,7 +411,7 @@ class SatDynEnv(gym.Env):
 
     def render(self):
         attitude = self.state[:4]
-        omega = self.state[4:7]
+        omega = self.state[4:7]*scale_angular_velocity_sat
         torque = torque_function(self.state, kp, kd)
 
         if self.render_mode == "human":

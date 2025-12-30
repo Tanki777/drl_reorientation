@@ -6,7 +6,7 @@ from stable_baselines3 import SAC
 import numpy as np
 import imageio.v2 as imageio
 
-from environment import SatDynEnv, scale_torque
+from environment import SatDynEnv, scale_torque, scale_angular_velocity_sat, scale_angular_velocity_wheels
 
 
 def load_agent(model_name: str):
@@ -106,7 +106,7 @@ def simulate_agent(model: SAC, eval_env: SatDynEnv, max_steps: int):
         "quaternion": states_array[:, :4],
         "quaternion_norm": norm_q,
         "torques": torques_array,
-        "omega": states_array[:, 4:7],
+        "omega": states_array[:, 4:7]*scale_angular_velocity_sat,
         "rewards": rewards_array,
         "cumulative_rewards": cumulative_rewards,
         "times": times
