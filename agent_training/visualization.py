@@ -280,14 +280,14 @@ def plot_actual_attitude(simulation_data: dict):
 
 ### MAIN ###
 if __name__ == "__main__":
-    MODEL_NAME = "test_new_env_7_basic_corr_4300000"
+    MODEL_NAME = "test_3wheels_sched_new_env_1_100000"
     model = load_agent(MODEL_NAME)
-    MAX_STEPS = 1000
+    MAX_STEPS = 500
 
     # Set initial state for evaluation environment
-    INITIAL_STATE = [4.8, 4.8, 0.00, 0.00, MAX_STEPS]  # [min_initial_angle, max_initial_angle, min_initial_angular_velocity, max_initial_angular_velocity]
+    INITIAL_STATE = [8.8, 8.8, 0.00, 0.00, MAX_STEPS, 0.0, 0.0]  # [min_initial_angle, max_initial_angle, min_initial_angular_velocity, max_initial_angular_velocity]
     eval_env = create_evaluation_env(INITIAL_STATE)
 
-    print_rewards(model, eval_env, n_eval_episodes=10)
+    print_rewards(model, eval_env, n_eval_episodes=5)
     simulation_data = simulate_agent(model, eval_env, MAX_STEPS)
     plot_actual_attitude(simulation_data)

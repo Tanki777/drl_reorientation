@@ -166,9 +166,9 @@ def do_scheduled_training(model_name, schedule, continue_training):
 
 if __name__ == "__main__":
     # Define which schedule to use
-    SCHEDULE_FILE_NAME = "test_schedule_old_env_1.json"
-    CONTINUE_TRAINING = False
-    MODEL_NAME = "test_new_env_rw_yang_old_sat_sched1"
+    SCHEDULE_FILE_NAME = "test_schedule_new_env_1.json"
+    CONTINUE_TRAINING = True
+    MODEL_NAME = "test_3wheels_2_sched_new_env_1"
 
     # Load the selected schedule
     schedule = load_schedule(SCHEDULE_FILE_NAME)
