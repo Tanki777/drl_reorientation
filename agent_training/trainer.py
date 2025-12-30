@@ -273,8 +273,7 @@ def create_or_load_model(env, continue_training, model_name, log_path):
     # Create new model if not loading existing one
     if not continue_training or not os.path.exists(latest_model_path):
         print(f"|-----{YELLOW_START}Creating new model from scratch...{COLOR_END}")
-        model = SAC("MlpPolicy", env, learning_rate=1e-4, buffer_size=1_000_000, learning_starts=10_000, batch_size=256, gradient_steps=-1, policy_kwargs=dict(
-        net_arch=dict(pi=[256, 256], qf=[256, 256])), verbose=1, device='cuda',
+        model = SAC("MlpPolicy", env, learning_rate=1e-4, buffer_size=1_000_000, learning_starts=10_000, batch_size=256, gradient_steps=-1, verbose=1, device='cuda',
                     tensorboard_log=log_path)  # Use absolute path for consistency
         
     return model, save_path, latest_model_path
