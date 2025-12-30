@@ -145,10 +145,7 @@ def plot_actual_attitude(simulation_data: dict):
     ax1.quiver(0, 0, 0, body_axis_arr[0, 0], body_axis_arr[0, 1], body_axis_arr[0, 2], color="green", arrow_length_ratio=0.1, linewidth=2)
     ax1.scatter(body_axis_arr[-1, 0], body_axis_arr[-1, 1], body_axis_arr[-1, 2], color="red", s=100, label="End")
     ax1.scatter(1, 0, 0, color="gold", s=150, marker="*", label="Target")
-
-    # DEBUG
-    print("Start vector:", body_axis_arr[0])
-    print("Angle between start and target (deg):", np.arccos(np.clip(np.dot(body_axis_arr[0], np.array([1,0,0])), -1.0, 1.0)) * 180 / np.pi)
+    
     
     def _generate_keep_out_zone_circle():
         # Create circle points for the keep out zone
@@ -264,7 +261,7 @@ if __name__ == "__main__":
     # Set the torques in action_schedule()
 
     # [min_initial_angle, max_initial_angle, min_initial_angular_velocity, max_initial_angular_velocity, max_steps, min_half_angle_koz, max_half_angle_koz]
-    initial_state = [90.0, 90.0, 0.0, 0.0, 600, 20.0, 20.0] 
+    initial_state = [51.0, 51.0, 0.0, 0.0, 600, 20.0, 20.0] 
     env = create_simulation_env(initial_state)
     simulation_data = start_simulation(env)
     plot_actual_attitude(simulation_data)
