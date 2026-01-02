@@ -1,7 +1,7 @@
 import os
 import time
 
-from test_trainer import repo_dir, repo_parent_dir, log_path, RED_START, GREEN_START, YELLOW_START, COLOR_END
+from trainer import repo_dir, repo_parent_dir, log_path, RED_START, GREEN_START, YELLOW_START, COLOR_END
 import subprocess
 
 def start_tensorboard():
