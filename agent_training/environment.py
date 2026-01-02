@@ -236,8 +236,16 @@ class SatDynEnv(gym.Env):
         ref_vec = np.array(reference_vector, dtype=np.float32)
         ref_vec = ref_vec / np.linalg.norm(ref_vec)
         
-        # Random angle between min and max
-        angle_rad = np.random.uniform(min_angle_deg * np.pi / 180, max_angle_deg * np.pi / 180)
+        # Random angle between min and max, following an exponential distribution
+        scale_parameter = (max_angle_deg - min_angle_deg) * 0.5  # scale parameter for exponential distribution
+        angle_deg = np.random.exponential(scale_parameter)
+        angle_deg = max_angle_deg - angle_deg  # inverse distribution direction, so larger angles are more probable
+
+        # If the sampled angle is out of bounds, resample until valid
+        while angle_deg < min_angle_deg or angle_deg > max_angle_deg:
+            angle_deg = np.random.exponential(scale_parameter)
+            
+        angle_rad = angle_deg * np.pi / 180  # convert to radians
         
         # Generate a random axis perpendicular to the reference vector
         # Method: Generate random vector, then project out the parallel component
