@@ -34,8 +34,6 @@ def safety_filter(wheels_desired, t, state): # gets control input, returns safe 
 # Compute constraints
     H0, A0, b0 = constraintE(t, state, constants, 0, outdata)  # Energy constraint
     A1, b1 = constraintQ(t, state, constants, 1, outdata)  # Pointing constraint
-# WARNING on the line above omega_dot is not defined! Where should it come from? 
-# Should SafetyFilter compute it from current state, or pass None and let constraintQ handle it?
     
 # Setup QP optimization
     nonlcon_omega = lambda u: u.T @ H0 @ u + A0 @ u - b0  # Nonlinear energy constraint
