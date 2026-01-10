@@ -17,13 +17,17 @@ def action_schedule(t):
     Yields an action based on the current time t.
     Actions are between -1 and 1 and correspond to -0.0007 Nm and +0.0007 NM
     """
-    action = np.zeros(4)
+    action = np.zeros(3)
 
-    if 2.0 <= t < 10.0:
-        action[2] = 1
+    if 0.0 <= t < 60.0:
+        action[0] = 0.0
+        action[1] = 0.2
+        action[2] = 0.1
 
-    if 30.0 <= t < 38.0:
-        action[2] = -1
+    if 70.0 <= t < 130.0:
+        action[0] = 0.0
+        action[1] = -0.2
+        action[2] = -0.1
 
     return action
 
@@ -133,6 +137,15 @@ def plot_actual_attitude(simulation_data: dict):
     
     # Convert to numpy array for proper indexing
     body_axis_arr = np.array(body_axis_arr)
+
+    # Calculate keep out zone margin angles between body axis and koz normal vector
+    margin_angles_koz = []
+    for i in range(len(body_axis_arr)):
+        cos_theta = np.dot(body_axis_arr[i], normal_vector_koz) / (np.linalg.norm(body_axis_arr[i]) * np.linalg.norm(normal_vector_koz))
+        cos_theta = np.clip(cos_theta, -1.0, 1.0)  # Clip to avoid numerical issues
+        theta = np.arccos(cos_theta)
+        margin_angle = (theta - half_angle_koz) * 180.0 / np.pi  # Convert to degrees
+        margin_angles_koz.append(margin_angle)
     
     fig = plt.figure(figsize=(18, 12))
     
@@ -218,15 +231,11 @@ def plot_actual_attitude(simulation_data: dict):
     ax3.legend()
     ax3.grid()
     
-    # Plot quaternion
+    # Plot margin angle for keep out zone
     ax4 = fig.add_subplot(234)
-    ax4.plot(times, q_0, label="$q_0$")
-    ax4.plot(times, q_1, label="$q_1$")
-    ax4.plot(times, q_2, label="$q_2$")
-    ax4.plot(times, q_3, label="$q_3$")
-    ax4.plot(times, norm_q, label="norm")
-    ax4.set_title("Attitude")
-    ax4.set_ylabel("Quaternion")
+    ax4.plot(times, margin_angles_koz, label="Margin Angle KOZ")
+    ax4.set_title("Margin Angle to Keep Out Zone")
+    ax4.set_ylabel("Degrees")
     ax4.legend()
     ax4.grid()
 
@@ -259,7 +268,7 @@ if __name__ == "__main__":
     # Set the torques in action_schedule()
 
     # [min_initial_angle, max_initial_angle, min_initial_angular_velocity, max_initial_angular_velocity, max_steps, min_half_angle_koz, max_half_angle_koz]
-    initial_state = [51.0, 51.0, 0.0, 0.0, 600, 20.0, 20.0] 
+    initial_state = [90.0, 90.0, 0.0, 0.0, 2000, 20.0, 20.0] 
     env = create_simulation_env(initial_state)
     simulation_data = start_simulation(env)
     plot_actual_attitude(simulation_data)
