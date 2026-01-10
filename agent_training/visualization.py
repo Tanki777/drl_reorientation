@@ -6,7 +6,7 @@ from stable_baselines3 import SAC
 import numpy as np
 import imageio.v2 as imageio
 
-from environment import SatDynEnv, scale_torque, scale_angular_velocity_sat, scale_angular_velocity_wheels
+from environment import SatDynEnv, scale_torque, scale_angular_velocity_sat, scale_angular_velocity_wheels, scale_margin_koz
 
 
 def load_agent(model_name: str):
@@ -63,6 +63,10 @@ def simulate_agent(model: SAC, eval_env: SatDynEnv, max_steps: int):
 
     obs, _ = eval_env.reset()
     done = False
+    normal_vector_koz = eval_env.normal_vector_koz
+    half_angle_koz = eval_env.half_angle_koz
+    min_margin_koz = 0
+    cnt_Koz_violations = 0
 
     # Simulation loop
     while not done:
@@ -78,18 +82,21 @@ def simulate_agent(model: SAC, eval_env: SatDynEnv, max_steps: int):
         rewards.append(reward)
         
         # Render the environment
-        frame = eval_env.render()
+        #frame = eval_env.render()
 
         # Store frame
-        frames.append(frame)
+        #frames.append(frame)
+
+        min_margin_koz = eval_env.min_margin_koz
+        cnt_Koz_violations = eval_env.entered_koz_count
 
     eval_env.close()
 
     # Save as MP4
     output_path = "trajectory.mp4"
 
-    imageio.mimsave(output_path, frames, fps=30)
-    print(f"Saved video to {output_path}")
+    #imageio.mimsave(output_path, frames, fps=30)
+    #print(f"Saved video to {output_path}")
 
     # Extract the solution for attitude (in terms of quaternion) and angular velocity
     states_array = np.array(states)
@@ -109,7 +116,12 @@ def simulate_agent(model: SAC, eval_env: SatDynEnv, max_steps: int):
         "omega": states_array[:, 4:7]*scale_angular_velocity_sat,
         "rewards": rewards_array,
         "cumulative_rewards": cumulative_rewards,
-        "times": times
+        "times": times,
+        "normal_vector_koz": normal_vector_koz,
+        "half_angle_koz": half_angle_koz,
+        "margin_angles_koz": states_array[:, 20]*scale_margin_koz*180/np.pi,
+        "min_margin_koz": min_margin_koz,
+        "cnt_Koz_violations": cnt_Koz_violations
         }
     
     return simulation_data
@@ -137,6 +149,14 @@ def plot_actual_attitude(simulation_data: dict):
     rewards_array = simulation_data["rewards"]
     cumulative_rewards = simulation_data["cumulative_rewards"]
     times = simulation_data["times"]
+    normal_vector_koz = simulation_data["normal_vector_koz"]
+    half_angle_koz = simulation_data["half_angle_koz"]
+    margin_angles_koz = simulation_data["margin_angles_koz"]
+    min_margin_koz = simulation_data["min_margin_koz"]
+    cnt_Koz_violations = simulation_data["cnt_Koz_violations"]
+
+    print("Minimum margin KOZ:", min_margin_koz*180/np.pi, "degrees")
+    print("Count KOZ violations:", cnt_Koz_violations)
 
     def quat_to_axis_angle(q):
         """Convert quaternion to rotation axis and angle"""
@@ -192,13 +212,44 @@ def plot_actual_attitude(simulation_data: dict):
     fig = plt.figure(figsize=(18, 12))
     
     # 3D Rotation Axis Trajectory (This is the key trajectory for phi angle!)
-    ax1 = fig.add_subplot(231, projection="3d")
+    ax1 = fig.add_subplot(241, projection="3d")
     
     # Plot trajectory on unit sphere (rotation axes are unit vectors)
     ax1.plot(body_axis_arr[:, 0], body_axis_arr[:, 1], body_axis_arr[:, 2], "b-", alpha=0.7, linewidth=3, label="Boresight Axis Trajectory")
     ax1.scatter(body_axis_arr[0, 0], body_axis_arr[0, 1], body_axis_arr[0, 2], color="green", s=100, label="Start")
     ax1.scatter(body_axis_arr[-1, 0], body_axis_arr[-1, 1], body_axis_arr[-1, 2], color="red", s=100, label="End")
     ax1.scatter(1, 0, 0, color="gold", s=150, marker="*", label="Target")
+
+    def _generate_keep_out_zone_circle():
+        # Create circle points for the keep out zone
+        theta = np.linspace(0, 2 * np.pi, 100)
+        circle_points = []
+        for angle in theta:
+            # Generate points on the circle in the plane perpendicular to the normal vector
+            v = np.array([np.cos(angle), np.sin(angle), 0])
+            # Rotate v to be perpendicular to koz_normal
+            if np.allclose(normal_vector_koz, [0, 0, 1]):
+                rot_axis = np.array([1, 0, 0])
+            else:
+                rot_axis = np.cross([0, 0, 1], normal_vector_koz)
+                rot_axis /= np.linalg.norm(rot_axis)
+            angle_to_rotate = np.arccos(np.dot(normal_vector_koz, [0, 0, 1]))
+            # Rodrigues' rotation formula
+            v_rotated = (v * np.cos(angle_to_rotate) +
+                        np.cross(rot_axis, v) * np.sin(angle_to_rotate) +
+                        rot_axis * np.dot(rot_axis, v) * (1 - np.cos(angle_to_rotate)))
+            # Scale to the radius of the keep out zone circle
+            radius = np.sin(half_angle_koz)
+            circle_point = normal_vector_koz * np.cos(half_angle_koz) + v_rotated * radius
+            circle_points.append(circle_point)
+
+        return circle_points
+
+    # Plot keep out zone as a ring on the unit sphere
+    if normal_vector_koz is not None and half_angle_koz is not None:
+        circle_points = _generate_keep_out_zone_circle()
+        circle_points = np.array(circle_points)
+        ax1.plot(circle_points[:, 0], circle_points[:, 1], circle_points[:, 2], "orange", linewidth=2, label="Keep Out Zone")
     
     # Draw unit sphere wireframe
     u = np.linspace(0, 2 * np.pi, 20)
@@ -218,7 +269,7 @@ def plot_actual_attitude(simulation_data: dict):
     ax1.legend()
     
     # Rotation angle φ vs time (same as in reward function)
-    ax2 = fig.add_subplot(232)
+    ax2 = fig.add_subplot(242)
     ax2.plot(times[:len(rotation_angles_deg)], rotation_angles_deg, "purple", linewidth=3, label="Angle $\\phi$")
     ax2.axhline(y=2.0, color="r", linestyle="--", linewidth=2, label="Target (2.0°)")
     ax2.set_xlabel("Time (s)")
@@ -229,7 +280,7 @@ def plot_actual_attitude(simulation_data: dict):
     ax2.set_yscale("log")
     
     # Cumulative Reward vs Time
-    ax3 = fig.add_subplot(233)  # New subplot for cumulative reward
+    ax3 = fig.add_subplot(243)  # New subplot for cumulative reward
     ax3.plot(times[:len(cumulative_rewards)], cumulative_rewards, "orange", linewidth=3, label="Cumulative Reward")
     ax3.plot(times[:len(rewards_array)], rewards_array, "lightcoral", alpha=0.6, linewidth=1, label="Step Reward")
     ax3.set_xlabel("Time (s)")
@@ -239,7 +290,7 @@ def plot_actual_attitude(simulation_data: dict):
     ax3.legend()
     
     # Plot quaternion
-    ax4 = fig.add_subplot(234)
+    ax4 = fig.add_subplot(244)
     ax4.plot(times, q_0, label="$q_0$")
     ax4.plot(times, q_1, label="$q_1$")
     ax4.plot(times, q_2, label="$q_2$")
@@ -251,7 +302,7 @@ def plot_actual_attitude(simulation_data: dict):
     ax4.grid()
 
     # Plot angular velocity
-    ax5 = fig.add_subplot(235)
+    ax5 = fig.add_subplot(245)
     ax5.plot(times, omega_x * (180 / np.pi), label="$\\omega_x$")
     ax5.plot(times, omega_y * (180 / np.pi), label="$\\omega_y$")
     ax5.plot(times, omega_z * (180 / np.pi), label="$\\omega_z$")
@@ -260,7 +311,7 @@ def plot_actual_attitude(simulation_data: dict):
     ax5.legend()
     ax5.grid()
     # Plot torque input
-    ax6 = fig.add_subplot(236)
+    ax6 = fig.add_subplot(246)
     ax6.plot(times, torques_array[:, 0], label="$\\tau_1$")
     ax6.plot(times, torques_array[:, 1], label="$\\tau_2$")
     ax6.plot(times, torques_array[:, 2], label="$\\tau_3$")
@@ -269,25 +320,38 @@ def plot_actual_attitude(simulation_data: dict):
     ax6.set_ylabel("$\\tau$ (Nm)")
     ax6.legend()
     ax6.grid()
+
+    # Plot keep out zone margin angle
+    ax7 = fig.add_subplot(247)
+    ax7.plot(times, margin_angles_koz, label="Margin Angle KOZ")
+    ax7.set_title("Keep Out Zone Margin Angle")
+    ax7.set_ylabel("Angle (degrees)")
+    ax7.legend()
+    ax7.grid()
     
     plt.tight_layout()
     plt.show()
 
     print_result(rotation_angles_deg[-1], simulation_data["omega"][-1], cumulative_rewards[-1])
+
+    # calculate norm for each vector in torque array
+    torque_norms = np.linalg.norm(torques_array, axis=1)
+    print("Torque avg: ", np.mean(torque_norms))
     
     return 
     
 
 ### MAIN ###
 if __name__ == "__main__":
-    MODEL_NAME = "test_3wheels_sched_new_env_1_100000"
+    MODEL_NAME = "phase1_best1_6100000"
     model = load_agent(MODEL_NAME)
-    MAX_STEPS = 500
+    MAX_STEPS = 3000
 
     # Set initial state for evaluation environment
-    INITIAL_STATE = [8.8, 8.8, 0.00, 0.00, MAX_STEPS, 0.0, 0.0]  # [min_initial_angle, max_initial_angle, min_initial_angular_velocity, max_initial_angular_velocity]
+    INITIAL_STATE = [170.0, 170.0, 0.00, 0.00, MAX_STEPS, 30.0, 30.0]  # [min_initial_angle, max_initial_angle, min_initial_angular_velocity, max_initial_angular_velocity]
     eval_env = create_evaluation_env(INITIAL_STATE)
 
-    print_rewards(model, eval_env, n_eval_episodes=5)
+    print_rewards(model, eval_env, n_eval_episodes=1)
     simulation_data = simulate_agent(model, eval_env, MAX_STEPS)
     plot_actual_attitude(simulation_data)
+
