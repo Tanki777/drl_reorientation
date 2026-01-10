@@ -8,6 +8,7 @@ from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.logger import HParam
 import environment as sat_env
 import subprocess
+import torch
 
 # Terminal colors
 RED_START = "\033[91m"
@@ -40,7 +41,9 @@ class CustomCallback(BaseCallback):
             "settling_time": [],
             "avg_torque": [],
             "max_torque": [],
-            "settled": []
+            "settled": [],
+            "min_margin_koz": [],
+            "entered_koz_count": [],
         }
 
     def _on_training_start(self):
@@ -87,7 +90,18 @@ class CustomCallback(BaseCallback):
         """Log accumulated custom metrics to TensorBoard"""
         for metric_name, values in self.custom_metrics.items():
             if values:  # Only log if we have data
-                mean_value = sum(values) / len(values)
+                if metric_name == "settling_time":
+                    # For settling_time, ignore non settled case (-1) when calculating mean
+                    non_zero_values = [v for v in values if v >= 0]
+                    if non_zero_values:
+                        mean_value = sum(non_zero_values) / len(non_zero_values)
+                    else:
+                        mean_value = 0.0
+                elif metric_name == "min_margin_koz":
+                    # For min_margin_koz, take the minimum value
+                    mean_value = min(values)
+                else:
+                    mean_value = sum(values) / len(values)
                 # Log to TensorBoard using the logger
                 self.logger.record(f"custom/{metric_name}_mean", mean_value)
             
@@ -248,7 +262,7 @@ def create_or_load_model(env, continue_training, model_name, log_path):
 
         try:
             model = SAC.load(latest_model_path, device='cuda')
-            model.set_env(env)
+            model.set_env(env) 
             print(f"|-----{GREEN_START}Successfully loaded existing model.{COLOR_END}")
             print(f"|-----Previous total timesteps: {model.num_timesteps}")
             
@@ -274,7 +288,7 @@ def create_or_load_model(env, continue_training, model_name, log_path):
     if not continue_training or not os.path.exists(latest_model_path):
         print(f"|-----{YELLOW_START}Creating new model from scratch...{COLOR_END}")
         model = SAC("MlpPolicy", env, learning_rate=1e-4, buffer_size=1_000_000, learning_starts=10_000, batch_size=256, gradient_steps=-1, verbose=1, device='cuda',
-                    tensorboard_log=log_path)  # Use absolute path for consistency
+                    tensorboard_log=log_path, ent_coef='auto')  # Use absolute path for consistency
         
     return model, save_path, latest_model_path
 
