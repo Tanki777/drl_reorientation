@@ -20,6 +20,7 @@ scale_torque = constants['u_max']
 scale_torque_norm = np.sqrt(scale_torque**2 + scale_torque**2 + scale_torque**2)  # Only 3 wheels now
 scale_angular_velocity_sat = 300.0
 scale_angular_velocity_wheels = 300.0
+scale_margin_koz = np.pi  # radians
 
 
 @njit
@@ -69,15 +70,38 @@ def quaternion_multiply(q1,q2):
     ], dtype=np.float32)
 
 
+@njit
 def rotate_vector_by_quaternion(v, q):
+    v = v.astype(np.float32)
     w, x, y, z = q
     R = np.array([
         [1 - 2*(y*y + z*z),     2*(x*y - z*w),       2*(x*z + y*w)],
         [2*(x*y + z*w),         1 - 2*(x*x + z*z),   2*(y*z - x*w)],
         [2*(x*z - y*w),         2*(y*z + x*w),       1 - 2*(x*x + y*y)]
-    ])
+    ], dtype=np.float32)
 
-    return R.dot(v)
+    return R @ v
+
+@njit
+def calc_margin_koz(q_array_initial, normal_vector_koz, half_angle_koz):
+    x_axis = np.array([1.0, 0.0, 0.0], dtype=np.float32)
+    body_axis_arr = rotate_vector_by_quaternion(x_axis, q_array_initial)
+
+    # Manual norm calculation for numba compatibility
+    norm_body = np.sqrt(body_axis_arr[0]**2 + body_axis_arr[1]**2 + body_axis_arr[2]**2)
+    norm_koz = np.sqrt(normal_vector_koz[0]**2 + normal_vector_koz[1]**2 + normal_vector_koz[2]**2)
+    
+    cos_theta = (body_axis_arr[0] * normal_vector_koz[0] + 
+                 body_axis_arr[1] * normal_vector_koz[1] + 
+                 body_axis_arr[2] * normal_vector_koz[2]) / (norm_body * norm_koz)
+    
+    # Manual clip for numba compatibility
+    cos_theta = min(max(cos_theta, -1.0), 1.0)
+    
+    theta = np.arccos(cos_theta)
+    margin_angle = theta - half_angle_koz
+    
+    return margin_angle
 
 @njit
 def sat_ode(state, torque, inertia_total, inertia_wheels, wheels_position_matrix, inertia_combined_inv):
@@ -123,9 +147,7 @@ def reward_function(state, scale_torque_norm):
     torque_1 = state[14]
     torque_2 = state[15]
     torque_3 = state[16]
-    torque_1_prev = state[17]
-    torque_2_prev = state[18]
-    torque_3_prev = state[19]
+    margin_koz = state[20]
     scale_torque_norm = np.float32(scale_torque_norm)
     
     # Clamp q0 values to [-1, 1] to prevent acos() domain errors (NaN) with large torques
@@ -136,17 +158,31 @@ def reward_function(state, scale_torque_norm):
     err_phi_current = 2 * math.acos(q0_current)   # in [rad]
     err_phi_prev = 2 * math.acos(q0_prev)   # in [rad]
 
-    if err_phi_current <= err_phi_prev:
-        reward0 = (math.exp(-err_phi_current/(0.14 * 2 * np.pi)) - 0.05*(math.sqrt(torque_1**2 + torque_2**2 + torque_3**2)/scale_torque_norm) 
-        - 0.005*2860.0*math.sqrt((torque_1 - torque_1_prev)**2 + (torque_2 - torque_2_prev)**2 + (torque_3 - torque_3_prev)**2))
-    else:
-        reward0 = (math.exp(-err_phi_current/(0.14 * 2 * np.pi)) - 0.05*(math.sqrt(torque_1**2 + torque_2**2 + torque_3**2)/scale_torque_norm)
-        - 0.005*2860.0*math.sqrt((torque_1 - torque_1_prev)**2 + (torque_2 - torque_2_prev)**2 + (torque_3 - torque_3_prev)**2) - 1)
+    err_phi_current = err_phi_current * 180.0 / np.pi
+    err_phi_prev = err_phi_prev * 180.0 / np.pi
 
-    if err_phi_current <= 0.25 * np.pi / 180:       # required attitude accuracy is satisfied
-        return reward0 + 9
+    # Reward for reducing attitude error
+    r1 = err_phi_prev - err_phi_current  # positive if error decreased
+
+    # Bonus for high accuracy
+    r3 = 0.0
+    if err_phi_current <= 0.25:
+        r3 = 0.01  # bonus for reaching the goal
     else:
-        return reward0
+        r3 = -0.01
+
+    # Penalty for using large torques
+    r4 = - 1.0*(abs(torque_1)+abs(torque_2)+abs(torque_3))
+
+    # Penalty for entering / being close to keep out zone
+    r5 = 0.0
+    if margin_koz <= 0.0:
+        r5 = -10.0
+    else:
+        r5 = -10.0*math.exp(-66.0*margin_koz)
+    
+
+    return r1 + r3 + r4 + r5
 
 
 class SatDynEnv(gym.Env):
@@ -166,11 +202,11 @@ class SatDynEnv(gym.Env):
         # Define observation space: [q, omega, wheel_velocities, q0_prev, omega_prev, torque, torque_prev]
         # = [q_0, q_1, q_2, q_3, omega_1, omega_2, omega_3, wheel_1, wheel_2, wheel_3, q0_prev, 
         #   omega_1_prev, omega_2_prev, omega_3_prev, torque_1, torque_2, torque_3, 
-        #   torque_1_prev, torque_2_prev, torque_3_prev]
-        # Total: 4 + 3 + 3 + 1 + 3 + 3 + 3 = 20 dimensions (reduced from 23)
+        #   torque_1_prev, torque_2_prev, torque_3_prev, margin_koz]
+        # Total: 4 + 3 + 3 + 1 + 3 + 3 + 3 + 1 = 21 dimensions
         # previous q0 is augmented in the state vector since it will be used in the reward function.
-        self.observation_space = spaces.Box(low= np.array([-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1], dtype=np.float32),
-                                            high= np.array([1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], dtype=np.float32),
+        self.observation_space = spaces.Box(low= np.array([-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1], dtype=np.float32),
+                                            high= np.array([1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], dtype=np.float32),
                                             dtype= np.float32)
 
         # Initial state
@@ -203,7 +239,8 @@ class SatDynEnv(gym.Env):
         self.settling_time = -1  # -1 means not settled
         self.settling_threshold_deg = 2.0  # degrees for considering "settled"
         self.settling_velocity_threshold = 0.01  # rad/s for angular velocity
-        
+        self.min_margin_koz = 0.0
+        self.entered_koz_count = 0
         
 
         # Define time step, step duration, and maximum steps
@@ -312,11 +349,14 @@ class SatDynEnv(gym.Env):
         # Generate keep out zone, vector in inertial frame (--> constant per episode), half angle in radians
         self.normal_vector_koz, self.half_angle_koz = self._generate_keep_out_zone(q_array_initial, self.min_half_angle_koz, self.max_half_angle_koz)
         
+        # Calculate margin angle to keep out zone
+        margin_koz = calc_margin_koz(q_array_initial, self.normal_vector_koz, self.half_angle_koz)
+
         q0_prev = q_array_initial[0]
         omega_prev = omega_initial
         state_ = np.concatenate((q_array_initial, omega_initial, wheel_velocities_initial))
-        # State: [q(4), omega(3), wheels(3), q0_prev(1), omega_prev(3), torque(3), torque_prev(3)] = 20 total
-        self.state = np.concatenate((state_, [q0_prev, *omega_prev, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]))
+        # State: [q(4), omega(3), wheels(3), q0_prev(1), omega_prev(3), torque(3), torque_prev(3), margin_koz(1)] = 21 total
+        self.state = np.concatenate((state_, [q0_prev, *omega_prev, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, margin_koz]))
 
         self.steps = 0
         
@@ -327,6 +367,16 @@ class SatDynEnv(gym.Env):
         self.episode_torques_prev = []
         self.settled = False
         self.settling_time = -1
+        self.min_margin_koz = 10.0
+        self.entered_koz_count = 0
+
+        # Update min margin koz angle
+        if margin_koz < self.min_margin_koz:
+            self.min_margin_koz = margin_koz
+
+        # Update entered koz count
+        if margin_koz < 0.0:
+            self.entered_koz_count += 1
 
         self.state = np.nan_to_num(self.state, nan=0.0)
         
@@ -335,6 +385,7 @@ class SatDynEnv(gym.Env):
         obs[4:7] = obs[4:7] / scale_angular_velocity_sat  # Normalize satellite angular velocity
         obs[7:10] = obs[7:10] / scale_angular_velocity_wheels  # Normalize wheel velocities (3 wheels)
         obs[11:14] = obs[11:14] / scale_angular_velocity_sat  # Normalize previous angular velocity
+        obs[20] = obs[20] / scale_margin_koz  # Normalize margin koz angle
         
         return obs.astype(np.float32), {}
 
@@ -368,7 +419,17 @@ class SatDynEnv(gym.Env):
         self.state[17:20] = torque_prev
         applied_torque = action * scale_torque
         self.state[14:17] = applied_torque
+
+        # Calculate margin angle to keep out zone
+        self.state[20] = calc_margin_koz(self.state[:4], self.normal_vector_koz, self.half_angle_koz)
         
+        # Update min margin koz angle
+        if self.state[20] < self.min_margin_koz:
+            self.min_margin_koz = self.state[20]
+
+        # Update entered koz count
+        if self.state[20] < 0.0:
+            self.entered_koz_count += 1
 
         # Calculate reward
         reward = reward_function(self.state, scale_torque_norm)
@@ -385,6 +446,7 @@ class SatDynEnv(gym.Env):
         obs[11:14] = obs[11:14] / scale_angular_velocity_sat  # Normalize previous angular velocity
         obs[14:17] = obs[14:17] / scale_torque  # Normalize current torque
         obs[17:20] = obs[17:20] / scale_torque  # Normalize previous torque
+        obs[20] = obs[20] / scale_margin_koz  # Normalize margin koz angle
         obs = obs.astype(np.float32)
      
         
@@ -412,6 +474,7 @@ class SatDynEnv(gym.Env):
             avg_torque = np.mean(self.episode_torques) if self.episode_torques else 0.0
             max_torque = np.max(self.episode_torques) if self.episode_torques else 0.0
             max_torque_prev = np.max(self.episode_torques_prev) if self.episode_torques else 0.0
+            min_margin_koz = self.min_margin_koz * 180 / np.pi  # convert to degrees
             
             info.update({
                 "custom_metrics/initial_error_angle": self.initial_error_angle,
@@ -422,6 +485,8 @@ class SatDynEnv(gym.Env):
                 "custom_metrics/max_torque": max_torque,
                 "custom_metrics/max_torque_prev": max_torque_prev,
                 "custom_metrics/settled": float(self.settled),
+                "custom_metrics/min_margin_koz": min_margin_koz,
+                "custom_metrics/entered_koz_count": float(self.entered_koz_count)
             })
 
         return obs, reward, done, truncated, info
