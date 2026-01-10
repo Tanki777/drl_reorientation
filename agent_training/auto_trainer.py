@@ -92,7 +92,6 @@ def create_or_load_model(continue_training, model_name, env):
     # Create new model and metadata
     else:
         model, save_path, latest_model_path = trainer.create_or_load_model(env, continue_training, model_name, trainer.log_path)
-
     return model, save_path, latest_model_path
 
 
@@ -121,8 +120,8 @@ def do_scheduled_training(model_name, schedule, continue_training):
             phase.get("min_initial_angular_velocity", 0.0),
             phase.get("max_initial_angular_velocity", 0.1),
             phase.get("max_steps", 500),
-            0.0,
-            0.0
+            phase.get("min_half_angle_koz", 0.0),
+            phase.get("max_half_angle_koz", 0.0)
         ]
         timesteps_left = metadata["phases"][phase_index].get("timesteps_left", timesteps)
 
@@ -166,9 +165,9 @@ def do_scheduled_training(model_name, schedule, continue_training):
 
 if __name__ == "__main__":
     # Define which schedule to use
-    SCHEDULE_FILE_NAME = "test_schedule_new_env_1.json"
+    SCHEDULE_FILE_NAME = "phase2_1.json"
     CONTINUE_TRAINING = True
-    MODEL_NAME = "test_3wheels_2_sched_new_env_1"
+    MODEL_NAME = "phase1_best1"
 
     # Load the selected schedule
     schedule = load_schedule(SCHEDULE_FILE_NAME)
