@@ -6,10 +6,19 @@ import matplotlib
 matplotlib.use("Agg")  # Use a non-interactive backend for frame rendering
 
 import math
+import sys
+import os
 
 from numba import njit
 
 from constants import get_constants
+
+# Add parent directory to path for imports
+parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
+
+from safety_filter.SafetyFilter import safety_filter
 
 constants = get_constants()
 
@@ -141,14 +150,22 @@ def sat_ode(state, torque, inertia_total, inertia_wheels, wheels_position_matrix
 
 
 @njit
-def reward_function(state, scale_torque_norm):
+def reward_function(state, scale_torque_norm, episode_count, use_curr_koz_weight):
     q0_current = state[0]
+    ang_vel_sat_1 = state[4]
+    ang_vel_sat_2 = state[5]
+    ang_vel_sat_3 = state[6]
     q0_prev = state[10]  
     torque_1 = state[14]
     torque_2 = state[15]
     torque_3 = state[16]
     margin_koz = state[20]
     scale_torque_norm = np.float32(scale_torque_norm)
+
+    margin_safe = 0.05 # 3 deg in rad
+    violation_coeff = 10.0
+    buffer_coeff = 0.2
+    koz_weight = min(1.0, episode_count / 20.0)
     
     # Clamp q0 values to [-1, 1] to prevent acos() domain errors (NaN) with large torques
     # Using min/max instead of np.clip for numba compatibility with scalars
@@ -161,8 +178,15 @@ def reward_function(state, scale_torque_norm):
     err_phi_current = err_phi_current * 180.0 / np.pi
     err_phi_prev = err_phi_prev * 180.0 / np.pi
 
+    safety_factor = min(1.0, margin_koz / margin_safe)
+    safety_factor = max(0.0, safety_factor)
+
     # Reward for reducing attitude error
-    r1 = err_phi_prev - err_phi_current  # positive if error decreased
+    r1 = (err_phi_prev - err_phi_current)  # positive if error decreased
+
+    r2 = 0.0
+    #if np.sqrt(ang_vel_sat_1**2 + ang_vel_sat_2**2 + ang_vel_sat_3**2) >= 0.1745:  # 10 deg/s in rad/s
+        #r2 = -10.0  # small penalty for high angular velocity
 
     # Bonus for high accuracy
     r3 = 0.0
@@ -177,13 +201,13 @@ def reward_function(state, scale_torque_norm):
     # Penalty for entering / being close to keep out zone
     r5 = 0.0
     if margin_koz <= 0.0:
-        r5 = -10.0
+        r5 = -1.0
     else:
-        r5 = -10.0*math.exp(-66.0*margin_koz)
+        r5 = -1.0*math.exp(-66.0*margin_koz)
+
     
 
-    return r1 + r3 + r4 + r5
-
+    return r1 + r2 + r3 + r4 + r5
 
 class SatDynEnv(gym.Env):
 
@@ -192,8 +216,13 @@ class SatDynEnv(gym.Env):
         "render_fps": 30,
     }
 
-    def __init__(self, render_mode=None, initial_state=None):
+    def __init__(self, render_mode=None, initial_state=None, use_curr_koz_weight=False, use_safety_filter=0):
         super(SatDynEnv).__init__()
+
+        self.episode_count = 0
+        self.USE_CURR_KOZ_WEIGHT = use_curr_koz_weight
+        self.USE_SAFETY_FILTER = use_safety_filter
+        self.action_agent = np.zeros(3, dtype=np.float32) # for logging (comparison between agent and safety filter)
 
         # Define action space as [torque_1, torque_2, torque_3]  (torques of 3 reaction wheels - 4th wheel deactivated)
         # Value range [-scale_torque, scale_torque] for each component
@@ -326,6 +355,8 @@ class SatDynEnv(gym.Env):
     def reset(self, seed=None, options=None):
         if seed is not None:
             np.random.seed(seed)
+
+        self.episode_count += 1
         
         # Generate random initial attitude error (0° to max_initial_angle)
         q_array_initial = self._generate_quaternion_with_vector_angle(self.x_axis, self.min_initial_angle, self.max_initial_angle)
@@ -390,6 +421,14 @@ class SatDynEnv(gym.Env):
         return obs.astype(np.float32), {}
 
     def step(self, action):
+        # Store agent's action
+        #self.action_agent = action
+
+        if self.USE_SAFETY_FILTER > 0:
+            # Apply safety filter for agent's action
+            safe_action = safety_filter(action*scale_torque, 0, self.state, self.normal_vector_koz, self.half_angle_koz, self.episode_count, self.steps) / scale_torque
+            action = safe_action
+
         q0_prev = self.state[0]     # store current q0 before integration
         omega_prev = self.state[4:7]  # store current omega before integration
         torque_prev = self.state[14:17]  # store current torque before integration (adjusted for 3 wheels)
@@ -432,7 +471,7 @@ class SatDynEnv(gym.Env):
             self.entered_koz_count += 1
 
         # Calculate reward
-        reward = reward_function(self.state, scale_torque_norm)
+        reward = reward_function(self.state, scale_torque_norm, self.episode_count, self.USE_CURR_KOZ_WEIGHT)
         
         # Track custom metrics
         

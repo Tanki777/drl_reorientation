@@ -95,7 +95,7 @@ def create_or_load_model(continue_training, model_name, env):
     return model, save_path, latest_model_path
 
 
-def do_scheduled_training(model_name, schedule, continue_training):
+def do_scheduled_training(model_name, schedule, continue_training, use_koz_weight, use_safety_filter):
     # Get training phases
     phases = schedule.get("phases", [])
     phase_count = len(phases)
@@ -144,7 +144,7 @@ def do_scheduled_training(model_name, schedule, continue_training):
         print(f"|---Training for {timesteps_left} timesteps...")
 
         # Create the training environment
-        env = trainer.create_environment(model_name, initial_state=initial_state, phase_name=phase_name)
+        env = trainer.create_environment(model_name, initial_state=initial_state, phase_name=phase_name, use_curr_koz_weight=use_koz_weight, use_safety_filter=use_safety_filter)
 
         # Create or load the model based on CONTINUE_TRAINING
         model, save_path, latest_model_path = create_or_load_model(continue_training, model_name, env)
@@ -167,7 +167,9 @@ if __name__ == "__main__":
     # Define which schedule to use
     SCHEDULE_FILE_NAME = "phase2_1.json"
     CONTINUE_TRAINING = True
-    MODEL_NAME = "phase1_best1"
+    USE_KOZ_WEIGHT = False
+    USE_SAFETY_FILTER = 1  # 0: no filter, 1: filter applied, 2: train with filter
+    MODEL_NAME = "phase1_best1_3cont2"
 
     # Load the selected schedule
     schedule = load_schedule(SCHEDULE_FILE_NAME)
@@ -176,7 +178,7 @@ if __name__ == "__main__":
     tensorboard_process = trainer.start_tensorboard()
 
     # Perform scheduled training
-    do_scheduled_training(MODEL_NAME, schedule, CONTINUE_TRAINING)
+    do_scheduled_training(MODEL_NAME, schedule, CONTINUE_TRAINING, USE_KOZ_WEIGHT, USE_SAFETY_FILTER)
 
     # Stop TensorBoard server on ctrl+C
     try:

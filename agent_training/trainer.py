@@ -176,7 +176,7 @@ def stop_tensorboard(process):
             print(f"|-----{RED_START}Error stopping TensorBoard: {e}{COLOR_END}")
 
 
-def create_environment(model_name, initial_state=None, phase_name=None):
+def create_environment(model_name, initial_state=None, phase_name=None, use_curr_koz_weight=False, use_safety_filter=0):
     """
     Create the training environment
     Returns:
@@ -193,7 +193,7 @@ def create_environment(model_name, initial_state=None, phase_name=None):
     # Create vectorized environment with 16 parallel instances
     if initial_state is not None:
         # Need to use a lambda to pass initial_state parameter
-        env = make_vec_env(lambda: sat_env.SatDynEnv(initial_state=initial_state), n_envs=16)
+        env = make_vec_env(lambda: sat_env.SatDynEnv(initial_state=initial_state, use_curr_koz_weight=use_curr_koz_weight, use_safety_filter=use_safety_filter), n_envs=16)
 
     else:
         env = make_vec_env(sat_env.SatDynEnv, n_envs=16)

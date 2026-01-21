@@ -5,6 +5,8 @@ from stable_baselines3.common.evaluation import evaluate_policy
 from stable_baselines3 import SAC
 import numpy as np
 import imageio.v2 as imageio
+import csv
+import time
 
 from environment import SatDynEnv, scale_torque, scale_angular_velocity_sat, scale_angular_velocity_wheels, scale_margin_koz
 
@@ -24,11 +26,11 @@ def load_agent(model_name: str):
     return model
 
 
-def create_evaluation_env(initial_state):
+def create_evaluation_env(initial_state, use_safety_filter):
     """
     Create the evaluation environment.
     """
-    eval_env = SatDynEnv(render_mode="rgb_array", initial_state=initial_state)
+    eval_env = SatDynEnv(render_mode="rgb_array", initial_state=initial_state, use_safety_filter=use_safety_filter)
     return eval_env
 
 
@@ -126,6 +128,150 @@ def simulate_agent(model: SAC, eval_env: SatDynEnv, max_steps: int):
     
     return simulation_data
 
+def evaluate_agent(model: SAC, eval_env: SatDynEnv, max_steps: int, episodes: int):
+    """
+    Simulate the agent in the evaluation environment.
+    Inputs:
+        model: The trained model.
+        eval_env: The evaluation environment.
+    """
+    # simulation_data = {
+    #     "quaternion": states_array[:, :4],
+    #     "quaternion_norm": norm_q,
+    #     "torques": torques_array,
+    #     "omega": states_array[:, 4:7]*scale_angular_velocity_sat,
+    #     "rewards": rewards_array,
+    #     "cumulative_rewards": cumulative_rewards,
+    #     "times": times,
+    #     "normal_vector_koz": normal_vector_koz,
+    #     "half_angle_koz": half_angle_koz,
+    #     "margin_angles_koz": states_array[:, 20]*scale_margin_koz*180/np.pi,
+    #     "min_margin_koz": min_margin_koz,
+    #     "cnt_Koz_violations": cnt_Koz_violations
+    #     }
+    csv_header = ["quaternion",
+                   "quaternion_norm", 
+                   "torques", 
+                   "omega", 
+                   "rewards", 
+                   "cumulative_rewards", 
+                   "times", 
+                   "normal_vector_koz", 
+                   "half_angle_koz", 
+                   "margin_angles_koz", 
+                   "min_margin_koz", 
+                   "cnt_Koz_violations"]
+    
+    timestamp = time.time()
+
+    #file = open(f"evaluation_episode_{timestamp}.csv", mode="w", newline="")
+    #writer = csv.DictWriter(file, fieldnames=csv_header)
+    #writer.writeheader()
+
+    koz_violation_episodes = 0
+    ep_rewards = []
+    err_angles_final = []
+    ang_vels_final = []
+    min_margins_koz = []
+    cnts_koz_violations = []
+    simulation_data = []
+
+    for episode in range(episodes):
+        print(f"Starting evaluation episode {episode+1}/{episodes}...",end="\r")
+        times = np.linspace(0, max_steps/10, max_steps)  # Assuming dt=0.1s
+        states = []
+        torques = []
+        rewards = []
+
+        obs, _ = eval_env.reset()
+        done = False
+        reward_cum = 0 # for this episode
+
+        # Simulation loop
+        while not done:
+            action, _states = model.predict(obs, deterministic=True)
+
+            states.append(obs.copy())
+            torques.append(action.copy())
+
+            # Step the environment
+            obs, reward, done, truncated, info = eval_env.step(action)
+
+            rewards.append(reward)
+
+            # Add up reward
+            reward_cum += reward
+
+        if eval_env.entered_koz_count > 0:
+            koz_violation_episodes += 1
+
+        # Convert to numpy arrays
+        states_array = np.array(states)
+        torques_array = np.array(torques) * scale_torque
+        rewards_array = np.array(rewards)
+
+        # Store episode data in a dictionary
+        episode_data = {
+            "quaternion": states_array[:, :4],
+            "quaternion_norm": np.linalg.norm(states_array[:, :4], axis=1),
+            "torques": torques_array,
+            "omega": states_array[:, 4:7]*scale_angular_velocity_sat,
+            "rewards": rewards_array,
+            "cumulative_rewards": np.cumsum(rewards_array),
+            "times": times,
+            "normal_vector_koz": eval_env.normal_vector_koz,
+            "half_angle_koz": eval_env.half_angle_koz,
+            "margin_angles_koz": states_array[:, 20]*scale_margin_koz*180/np.pi,
+            "min_margin_koz": eval_env.min_margin_koz,
+            "cnt_Koz_violations": eval_env.entered_koz_count
+        }
+
+        simulation_data.append(episode_data)
+
+        #writer.writerow(episode_data)
+
+        #file.flush()
+        
+        # Add episode results to evaluation lists
+        min_margins_koz.append(eval_env.min_margin_koz*180/np.pi)  # in degrees
+        cnts_koz_violations.append(eval_env.entered_koz_count)
+        ep_rewards.append(reward_cum)
+
+        q0_final = obs[0]
+        err_angle_final = 2 * np.arccos(np.abs(q0_final)) * 180/np.pi  # final rotation angle in degrees
+        err_angles_final.append(err_angle_final)
+
+        ang_vel_final = obs[4:7] * scale_angular_velocity_sat * 180/np.pi  # final angular velocity in deg/s
+        ang_vel_final_mag = np.sqrt(ang_vel_final[0]**2 + ang_vel_final[1]**2 + ang_vel_final[2]**2) # magnitude
+        ang_vels_final.append(ang_vel_final_mag)
+
+    eval_env.close()
+    #file.close()
+
+    # Convert to numpy arrays
+    err_angles_final_array = np.array(err_angles_final)
+    ang_vels_final_array = np.array(ang_vels_final)
+    min_margins_koz_array = np.array(min_margins_koz)
+    cnts_koz_violations_array = np.array(cnts_koz_violations)
+
+    # Save episode data (per timestep)
+    np.savez(f"evaluation_{timestamp}.npz", data=np.array(simulation_data), dtype=object)
+
+    # Print results
+    print()
+    print(f"Violation rate: {koz_violation_episodes/episodes*100}%")
+    print(f"Agent was within KOZ for these amount of steps per episode:")
+    print(f"--- Mean: {np.mean(cnts_koz_violations_array):.2f}, Std: {np.std(cnts_koz_violations_array):.2f}, Min: {np.min(cnts_koz_violations_array)}, Max: {np.max(cnts_koz_violations_array)}")
+    print(f"Minimum margin to KOZ (degrees):")
+    print(f"--- Mean: {np.mean(min_margins_koz_array):.2f}, Std: {np.std(min_margins_koz_array):.2f}, Min: {np.min(min_margins_koz_array):.2f}, Max: {np.max(min_margins_koz_array):.2f}")
+    print(f"Final rotation angle (degrees):")
+    print(f"--- Mean: {np.mean(err_angles_final_array):.2f}, Std: {np.std(err_angles_final_array):.2f}, Min: {np.min(err_angles_final_array):.2f}, Max: {np.max(err_angles_final_array):.2f}")
+    print(f"Final angular velocity (deg/s):")
+    print(f"--- Mean: {np.mean(ang_vels_final_array):.4f}, Std: {np.std(ang_vels_final_array):.4f}, Min: {np.min(ang_vels_final_array):.4f}, Max: {np.max(ang_vels_final_array):.4f}")
+    print(f"Rewards:")
+    print(f"--- Mean: {np.mean(ep_rewards):.2f}, Std: {np.std(ep_rewards):.2f}, Min: {np.min(ep_rewards):.2f}, Max: {np.max(ep_rewards):.2f}")
+
+
 def print_result(phi_final, omega_final, cumulative_reward_final):
 
     print(f"Final rotation angle: {phi_final:.6f}°")
@@ -134,6 +280,22 @@ def print_result(phi_final, omega_final, cumulative_reward_final):
     print(f"Target accuracy: 2.0°")
     print(f"Attitude control: {"SUCCESS" if phi_final < 2.0 else "NOT CONVERGED"}")
     print(f"Velocity settling: {"SUCCESS" if np.sqrt(omega_final[0]**2 + omega_final[1]**2 + omega_final[2]**2)*180/np.pi < 0.5 else "NOT SETTLED"}")
+
+def quat_to_axis_angle(q):
+        """Convert quaternion to rotation axis and angle"""
+        q0, q1, q2, q3 = q
+        
+        # Angle phi = 2 * arccos(|q0|) (same as in reward function)
+        angle = 2 * np.arccos(np.abs(q0))
+        
+        # Rotation axis = q_vec / |q_vec| (normalized quaternion vector part)
+        q_vec_norm = np.sqrt(q1**2 + q2**2 + q3**2)
+        if q_vec_norm > 1e-6:  # Avoid division by zero
+            axis = np.array([q1, q2, q3]) / q_vec_norm
+        else:
+            axis = np.array([0, 0, 0])  # No rotation axis if angle is zero
+            
+        return axis, angle
 
 def plot_actual_attitude(simulation_data: dict):
     """Plot the ACTUAL satellite attitude trajectory based on rotation axis and angle phi"""
@@ -158,22 +320,6 @@ def plot_actual_attitude(simulation_data: dict):
     print("Minimum margin KOZ:", min_margin_koz*180/np.pi, "degrees")
     print("Count KOZ violations:", cnt_Koz_violations)
 
-    def quat_to_axis_angle(q):
-        """Convert quaternion to rotation axis and angle"""
-        q0, q1, q2, q3 = q
-        
-        # Angle phi = 2 * arccos(|q0|) (same as in reward function)
-        angle = 2 * np.arccos(np.abs(q0))
-        
-        # Rotation axis = q_vec / |q_vec| (normalized quaternion vector part)
-        q_vec_norm = np.sqrt(q1**2 + q2**2 + q3**2)
-        if q_vec_norm > 1e-6:  # Avoid division by zero
-            axis = np.array([q1, q2, q3]) / q_vec_norm
-        else:
-            axis = np.array([0, 0, 0])  # No rotation axis if angle is zero
-            
-        return axis, angle
-    
     # Extract rotation axes and angles for all time points
     rotation_axes = []
     rotation_angles = []
@@ -271,7 +417,7 @@ def plot_actual_attitude(simulation_data: dict):
     # Rotation angle φ vs time (same as in reward function)
     ax2 = fig.add_subplot(242)
     ax2.plot(times[:len(rotation_angles_deg)], rotation_angles_deg, "purple", linewidth=3, label="Angle $\\phi$")
-    ax2.axhline(y=2.0, color="r", linestyle="--", linewidth=2, label="Target (2.0°)")
+    ax2.axhline(y=0.25, color="r", linestyle="--", linewidth=2, label="Accuracy Threshold (0.25°)")
     ax2.set_xlabel("Time (s)")
     ax2.set_ylabel("Rotation Angle $\\phi$ (°)")
     ax2.set_title("Rotation Angle $\\phi$ vs Time\n(Used in reward function)")
@@ -339,19 +485,61 @@ def plot_actual_attitude(simulation_data: dict):
     print("Torque avg: ", np.mean(torque_norms))
     
     return 
-    
+
+
+def load_evaluation_data(file_path: str):
+    """
+    Load the simulation data.
+    The part inside of the for loop can be modified to find specific episodes you are interested in.
+    For example, episodes where the mean torque was above some threshold, episodes where the safety constraint was violated, etc.
+    You could then print the index (i) of these episodes to the terminal.
+    """
+    _data = np.load(file_path, allow_pickle=True)
+    data = _data["data"].tolist()  # Convert back to list of dicts
+
+    reward_min = None
+    reward_min_idx = None
+
+    for i, episode_data in enumerate(data):
+        if np.mean(np.linalg.norm(episode_data["torques"], axis=1)) > 0.0005:
+            print(i,end=",")
+            pass
+
+        if episode_data["cumulative_rewards"][-1] < -200:
+            #print(i,end=",")
+            pass
+    print()
+    return data
+        
 
 ### MAIN ###
 if __name__ == "__main__":
-    MODEL_NAME = "phase1_best1_6100000"
+    MODEL_NAME = "phase1_best1_backup"
     model = load_agent(MODEL_NAME)
     MAX_STEPS = 3000
 
     # Set initial state for evaluation environment
     INITIAL_STATE = [170.0, 170.0, 0.00, 0.00, MAX_STEPS, 30.0, 30.0]  # [min_initial_angle, max_initial_angle, min_initial_angular_velocity, max_initial_angular_velocity]
-    eval_env = create_evaluation_env(INITIAL_STATE)
 
-    print_rewards(model, eval_env, n_eval_episodes=1)
-    simulation_data = simulate_agent(model, eval_env, MAX_STEPS)
-    plot_actual_attitude(simulation_data)
+    USE_SAFETY_FILTER = 1  # 0: no filter, 1: filter applied, 2: train with filter
+
+    eval_env = create_evaluation_env(INITIAL_STATE, USE_SAFETY_FILTER)
+
+    """ Uncomment simulate_agent() and plot_actual_attitude() below to run 1 simulation and plot the results. """
+    #print_rewards(model, eval_env, n_eval_episodes=1)
+    #simulation_data = simulate_agent(model, eval_env, MAX_STEPS)
+    #plot_actual_attitude(simulation_data)
+
+    """ Uncomment the lines below if you have saved evaluation data (from evaluate_agent()) to load all the episodes.
+        loaded contains ALL episodes, therefore in loaded[] should be the index of the episode you want to plot.
+    """
+    #loaded = load_evaluation_data("evaluation_phase1_best1_backup3_10k.npz")
+    #plot_actual_attitude(loaded[23])
+
+    """ Uncomment evaluate_agent() below to simulate the agent over multiple episodes and save the data at the end. """
+    t_start = time.time()
+    #evaluate_agent(model, eval_env, MAX_STEPS, episodes=10000)
+    t_end = time.time()
+    print()
+    print(f"Evaluation time: {t_end - t_start:.2f} seconds")
 
