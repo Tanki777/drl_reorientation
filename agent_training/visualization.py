@@ -1,6 +1,6 @@
+import os
 import matplotlib.pyplot as plt
 import matplotlib
-import os
 from stable_baselines3.common.evaluation import evaluate_policy
 from stable_baselines3 import SAC
 import numpy as np
@@ -128,46 +128,26 @@ def simulate_agent(model: SAC, eval_env: SatDynEnv, max_steps: int):
     
     return simulation_data
 
-def evaluate_agent(model: SAC, eval_env: SatDynEnv, max_steps: int, episodes: int):
+def evaluate_agent_worker(model_name: str, initial_state: list, use_safety_filter: int, max_steps: int, episodes: int, worker_id: int):
     """
-    Simulate the agent in the evaluation environment.
+    Worker function to evaluate agent for a subset of episodes.
+    This function will be run in parallel by multiple processes.
     Inputs:
-        model: The trained model.
-        eval_env: The evaluation environment.
+        model_name: Name of the model file (without .zip extension).
+        initial_state: Initial state configuration for environment.
+        use_safety_filter: Safety filter mode.
+        max_steps: Maximum steps per episode.
+        episodes: Number of episodes to run.
+        worker_id: ID of this worker process.
+    Returns:
+        Dictionary containing evaluation results.
     """
-    # simulation_data = {
-    #     "quaternion": states_array[:, :4],
-    #     "quaternion_norm": norm_q,
-    #     "torques": torques_array,
-    #     "omega": states_array[:, 4:7]*scale_angular_velocity_sat,
-    #     "rewards": rewards_array,
-    #     "cumulative_rewards": cumulative_rewards,
-    #     "times": times,
-    #     "normal_vector_koz": normal_vector_koz,
-    #     "half_angle_koz": half_angle_koz,
-    #     "margin_angles_koz": states_array[:, 20]*scale_margin_koz*180/np.pi,
-    #     "min_margin_koz": min_margin_koz,
-    #     "cnt_Koz_violations": cnt_Koz_violations
-    #     }
-    csv_header = ["quaternion",
-                   "quaternion_norm", 
-                   "torques", 
-                   "omega", 
-                   "rewards", 
-                   "cumulative_rewards", 
-                   "times", 
-                   "normal_vector_koz", 
-                   "half_angle_koz", 
-                   "margin_angles_koz", 
-                   "min_margin_koz", 
-                   "cnt_Koz_violations"]
+    # Load model in worker process
+    model = load_agent(model_name)
     
-    timestamp = time.time()
-
-    #file = open(f"evaluation_episode_{timestamp}.csv", mode="w", newline="")
-    #writer = csv.DictWriter(file, fieldnames=csv_header)
-    #writer.writeheader()
-
+    # Create environment in worker process
+    eval_env = create_evaluation_env(initial_state, use_safety_filter)
+    
     koz_violation_episodes = 0
     ep_rewards = []
     err_angles_final = []
@@ -177,7 +157,7 @@ def evaluate_agent(model: SAC, eval_env: SatDynEnv, max_steps: int, episodes: in
     simulation_data = []
 
     for episode in range(episodes):
-        print(f"Starting evaluation episode {episode+1}/{episodes}...",end="\r")
+        print(f"Worker {worker_id}: Episode {episode+1}/{episodes}...", end="\r")
         times = np.linspace(0, max_steps/10, max_steps)  # Assuming dt=0.1s
         states = []
         torques = []
@@ -227,10 +207,6 @@ def evaluate_agent(model: SAC, eval_env: SatDynEnv, max_steps: int, episodes: in
         }
 
         simulation_data.append(episode_data)
-
-        #writer.writerow(episode_data)
-
-        #file.flush()
         
         # Add episode results to evaluation lists
         min_margins_koz.append(eval_env.min_margin_koz*180/np.pi)  # in degrees
@@ -246,7 +222,76 @@ def evaluate_agent(model: SAC, eval_env: SatDynEnv, max_steps: int, episodes: in
         ang_vels_final.append(ang_vel_final_mag)
 
     eval_env.close()
-    #file.close()
+    
+    # Return results from this worker
+    return {
+        "koz_violation_episodes": koz_violation_episodes,
+        "ep_rewards": ep_rewards,
+        "err_angles_final": err_angles_final,
+        "ang_vels_final": ang_vels_final,
+        "min_margins_koz": min_margins_koz,
+        "cnts_koz_violations": cnts_koz_violations,
+        "simulation_data": simulation_data
+    }
+
+
+def evaluate_agent(model_name: str, initial_state: list, use_safety_filter: int, max_steps: int, episodes: int, num_workers: int = 8):
+    """
+    Simulate the agent in parallel using multiple processes.
+    Inputs:
+        model_name: Name of the model file (without .zip extension).
+        initial_state: Initial state configuration for environment.
+        use_safety_filter: Safety filter mode.
+        max_steps: Maximum steps per episode.
+        episodes: Total number of episodes to run.
+        num_workers: Number of parallel worker processes (default: 8).
+    """
+    import multiprocessing as mp
+    
+    timestamp = time.time()
+    
+    # Divide episodes among workers
+    episodes_per_worker = episodes // num_workers
+    remaining_episodes = episodes % num_workers
+    
+    # Create list of episode counts for each worker
+    episode_counts = [episodes_per_worker] * num_workers
+    for i in range(remaining_episodes):
+        episode_counts[i] += 1
+    
+    print(f"Running {episodes} episodes across {num_workers} workers...")
+    print(f"Episodes per worker: {episode_counts}")
+    
+    # Create pool of workers
+    with mp.Pool(processes=num_workers) as pool:
+        # Start all workers in parallel
+        results = []
+        for worker_id in range(num_workers):
+            result = pool.apply_async(
+                evaluate_agent_worker,
+                args=(model_name, initial_state, use_safety_filter, max_steps, episode_counts[worker_id], worker_id)
+            )
+            results.append(result)
+        
+        # Wait for all workers to complete and collect results
+        worker_results = [r.get() for r in results]
+    
+    # Combine results from all workers
+    koz_violation_episodes = sum(r["koz_violation_episodes"] for r in worker_results)
+    ep_rewards = []
+    err_angles_final = []
+    ang_vels_final = []
+    min_margins_koz = []
+    cnts_koz_violations = []
+    simulation_data = []
+    
+    for r in worker_results:
+        ep_rewards.extend(r["ep_rewards"])
+        err_angles_final.extend(r["err_angles_final"])
+        ang_vels_final.extend(r["ang_vels_final"])
+        min_margins_koz.extend(r["min_margins_koz"])
+        cnts_koz_violations.extend(r["cnts_koz_violations"])
+        simulation_data.extend(r["simulation_data"])
 
     # Convert to numpy arrays
     err_angles_final_array = np.array(err_angles_final)
@@ -502,19 +547,20 @@ def load_evaluation_data(file_path: str):
 
     for i, episode_data in enumerate(data):
         if np.mean(np.linalg.norm(episode_data["torques"], axis=1)) > 0.0005:
-            print(i,end=",")
+            #print(i,end=",")
             pass
 
         if episode_data["cumulative_rewards"][-1] < -200:
             #print(i,end=",")
             pass
-    print()
+    print(len(data))
     return data
         
+import multiprocessing
 
 ### MAIN ###
 if __name__ == "__main__":
-    MODEL_NAME = "phase1_best1_backup"
+    MODEL_NAME = "phase1_best1_ph2_sfty2_11100000"
     model = load_agent(MODEL_NAME)
     MAX_STEPS = 3000
 
@@ -533,12 +579,13 @@ if __name__ == "__main__":
     """ Uncomment the lines below if you have saved evaluation data (from evaluate_agent()) to load all the episodes.
         loaded contains ALL episodes, therefore in loaded[] should be the index of the episode you want to plot.
     """
-    #loaded = load_evaluation_data("evaluation_phase1_best1_backup3_10k.npz")
+    #loaded = load_evaluation_data("evaluation_test_mp_800.npz")
     #plot_actual_attitude(loaded[23])
 
     """ Uncomment evaluate_agent() below to simulate the agent over multiple episodes and save the data at the end. """
     t_start = time.time()
-    #evaluate_agent(model, eval_env, MAX_STEPS, episodes=10000)
+    # Run evaluation with 8 parallel workers and n episodes
+    evaluate_agent(MODEL_NAME, INITIAL_STATE, USE_SAFETY_FILTER, MAX_STEPS, episodes=800, num_workers=8)
     t_end = time.time()
     print()
     print(f"Evaluation time: {t_end - t_start:.2f} seconds")
