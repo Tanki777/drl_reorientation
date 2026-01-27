@@ -162,19 +162,39 @@ def simulate_agent(model: SAC, eval_env: SatDynEnv, max_steps: int):
     
     return simulation_data
 
-def evaluate_agent(model: SAC, eval_env: SatDynEnv, max_steps: int, episodes: int, schedule: dict):
+def save_simulation_checkpoint(simulation_data, out_dir: Path, base_name: str, start_ep: int, end_ep: int):
+    """
+    Save a slice of simulation_data to a checkpoint .npz file.
+    start_ep/end_ep are 1-based inclusive episode indices for naming.
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    filename = f"{base_name}_ep{start_ep:04d}-{end_ep:04d}.npz"
+    out_path = out_dir / filename
+    np.savez(out_path, data=np.array(simulation_data, dtype=object))
+    print(f"\n[Checkpoint] Saved episodes {start_ep}-{end_ep} -> {out_path}")
+
+
+def evaluate_agent(model: SAC, eval_env: SatDynEnv, max_steps: int, episodes: int, schedule: dict,
+                   save_every: int = 1000):
     """
     Run Monte Carlo simulation over multiple episodes and save results.
-    Inputs:
-        model: The trained model.
-        eval_env: The evaluation environment.
-        max_steps: Maximum steps per episode
-        episodes: Number of episodes to simulate
-        schedule: Schedule configuration dictionary
+    Additionally saves checkpoint .npz files every `save_every` episodes,
+    and one final FULL file at the end.
+
+    Output:
+      - 10 files for 10k sims when save_every=1000
+      - 1 final FULL file for all 10k sims
     """
-    
+
     timestamp = int(time.time())
     scenario_id = schedule.get("scenario_id", "unknown")
+
+    # Folder to store all outputs for this run
+    base_dir = Path(__file__).resolve().parents[2]  # -> Code/
+    out_dir = base_dir / "evaluation_outputs" / f"{scenario_id}_{timestamp}"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    base_name = f"evaluation_{scenario_id}_{timestamp}"
 
     koz_violation_episodes = 0
     ep_rewards = []
@@ -184,8 +204,13 @@ def evaluate_agent(model: SAC, eval_env: SatDynEnv, max_steps: int, episodes: in
     cnts_koz_violations = []
     simulation_data = []
 
+    # For chunk naming (1-based episode indices)
+    chunk_start_ep = 1
+
     for episode in range(episodes):
-        print(f"Starting evaluation episode {episode+1}/{episodes}...", end="\r")
+        ep_idx = episode + 1  # 1-based
+        print(f"Starting evaluation episode {ep_idx}/{episodes}...", end="\r")
+
         times = np.linspace(0, max_steps/10, max_steps)  # Assuming dt=0.1s
         states = []
         torques = []
@@ -193,74 +218,82 @@ def evaluate_agent(model: SAC, eval_env: SatDynEnv, max_steps: int, episodes: in
 
         obs, _ = eval_env.reset()
         done = False
-        reward_cum = 0 # for this episode
+        reward_cum = 0
 
         # Simulation loop
         while not done:
             action, _states = model.predict(obs, deterministic=True)
-
             states.append(obs.copy())
             torques.append(action.copy())
 
-            # Step the environment
             obs, reward, done, truncated, info = eval_env.step(action)
-
             rewards.append(reward)
-
-            # Add up reward
             reward_cum += reward
 
         if eval_env.entered_koz_count > 0:
             koz_violation_episodes += 1
 
-        # Convert to numpy arrays
         states_array = np.array(states)
         torques_array = np.array(torques) * scale_torque
         rewards_array = np.array(rewards)
 
-        # Store episode data in a dictionary
         episode_data = {
             "quaternion": states_array[:, :4],
             "quaternion_norm": np.linalg.norm(states_array[:, :4], axis=1),
             "torques": torques_array,
-            "omega": states_array[:, 4:7]*scale_angular_velocity_sat,
+            "omega": states_array[:, 4:7] * scale_angular_velocity_sat,
             "rewards": rewards_array,
             "cumulative_rewards": np.cumsum(rewards_array),
             "times": times,
             "normal_vector_koz": eval_env.normal_vector_koz,
             "half_angle_koz": eval_env.half_angle_koz,
-            "margin_angles_koz": states_array[:, 20]*scale_margin_koz*180/np.pi,
+            "margin_angles_koz": states_array[:, 20] * scale_margin_koz * 180/np.pi,
             "min_margin_koz": eval_env.min_margin_koz,
             "cnt_Koz_violations": eval_env.entered_koz_count
         }
 
         simulation_data.append(episode_data)
-        
-        # Add episode results to evaluation lists
-        min_margins_koz.append(eval_env.min_margin_koz*180/np.pi)  # in degrees
+
+        # Episode summaries
+        min_margins_koz.append(eval_env.min_margin_koz * 180/np.pi)
         cnts_koz_violations.append(eval_env.entered_koz_count)
         ep_rewards.append(reward_cum)
 
         q0_final = obs[0]
-        err_angle_final = 2 * np.arccos(np.abs(q0_final)) * 180/np.pi  # final rotation angle in degrees
+        err_angle_final = 2 * np.arccos(np.abs(q0_final)) * 180/np.pi
         err_angles_final.append(err_angle_final)
 
-        ang_vel_final = obs[4:7] * scale_angular_velocity_sat * 180/np.pi  # final angular velocity in deg/s
-        ang_vel_final_mag = np.sqrt(ang_vel_final[0]**2 + ang_vel_final[1]**2 + ang_vel_final[2]**2) # magnitude
+        ang_vel_final = obs[4:7] * scale_angular_velocity_sat * 180/np.pi
+        ang_vel_final_mag = np.sqrt(ang_vel_final[0]**2 + ang_vel_final[1]**2 + ang_vel_final[2]**2)
         ang_vels_final.append(ang_vel_final_mag)
+
+        # ---- CHECKPOINT SAVE EVERY `save_every` EPISODES ----
+        if (ep_idx % save_every) == 0:
+            chunk_end_ep = ep_idx
+            # Save only the last chunk (not the full list each time)
+            chunk_data = simulation_data[chunk_start_ep-1:chunk_end_ep]
+            save_simulation_checkpoint(
+                simulation_data=chunk_data,
+                out_dir=out_dir,
+                base_name=base_name,
+                start_ep=chunk_start_ep,
+                end_ep=chunk_end_ep
+            )
+            chunk_start_ep = ep_idx + 1
 
     eval_env.close()
 
-    # Convert to numpy arrays
+    # ---- FINAL FULL SAVE ----
+    full_filename = f"{base_name}_FULL_ep0001-{episodes:04d}.npz"
+    full_path = out_dir / full_filename
+    np.savez(full_path, data=np.array(simulation_data, dtype=object))
+    print(f"\nSaved FULL evaluation data to {full_path}")
+
+    # Convert to numpy arrays for summary stats
     err_angles_final_array = np.array(err_angles_final)
     ang_vels_final_array = np.array(ang_vels_final)
     min_margins_koz_array = np.array(min_margins_koz)
     cnts_koz_violations_array = np.array(cnts_koz_violations)
-
-    # Save episode data (per timestep)
-    output_filename = f"evaluation_{scenario_id}_{timestamp}.npz"
-    np.savez(output_filename, data=np.array(simulation_data, dtype=object))
-    print(f"\nSaved evaluation data to {output_filename}")
 
     # Print results
     print()
@@ -277,7 +310,6 @@ def evaluate_agent(model: SAC, eval_env: SatDynEnv, max_steps: int, episodes: in
     print(f"--- Mean: {np.mean(ang_vels_final_array):.4f}, Std: {np.std(ang_vels_final_array):.4f}, Min: {np.min(ang_vels_final_array):.4f}, Max: {np.max(ang_vels_final_array):.4f}")
     print(f"Rewards:")
     print(f"--- Mean: {np.mean(ep_rewards):.2f}, Std: {np.std(ep_rewards):.2f}, Min: {np.min(ep_rewards):.2f}, Max: {np.max(ep_rewards):.2f}")
-
 
 def print_result(phi_final, omega_final, cumulative_reward_final):
 
@@ -546,14 +578,14 @@ if __name__ == "__main__":
 
     # ===== OPTION 1: Run single simulation and plot =====
     # Uncomment the lines below to run 1 simulation and plot the results
-    print_rewards(model, eval_env, n_eval_episodes=1)
-    simulation_data = simulate_agent(model, eval_env, MAX_STEPS)
-    plot_actual_attitude(simulation_data)
+    # print_rewards(model, eval_env, n_eval_episodes=1)
+    # simulation_data = simulate_agent(model, eval_env, MAX_STEPS)
+    # plot_actual_attitude(simulation_data)
 
     # ===== OPTION 2: Load saved evaluation data and plot specific episode =====
     # Uncomment the lines below if you have saved evaluation data
-    loaded = load_evaluation_data("evaluation_MC_P1_NoSafetyFilter_1234567890.npz")
-    plot_actual_attitude(loaded[0])  # Change index to plot different episode
+    # loaded = load_evaluation_data("evaluation_MC_P1_NoSafetyFilter_1234567890.npz")
+    # plot_actual_attitude(loaded[0])  # Change index to plot different episode
 
     # ===== OPTION 3: Run Monte Carlo simulation (10k episodes) =====
     # Uncomment the lines below to run Monte Carlo simulation
