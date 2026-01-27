@@ -1,6 +1,6 @@
+import os
 import matplotlib.pyplot as plt
 import matplotlib
-import os
 from stable_baselines3.common.evaluation import evaluate_policy
 from stable_baselines3 import SAC
 import numpy as np
@@ -162,40 +162,26 @@ def simulate_agent(model: SAC, eval_env: SatDynEnv, max_steps: int):
     
     return simulation_data
 
-def save_simulation_checkpoint(simulation_data, out_dir: Path, base_name: str, start_ep: int, end_ep: int):
+def evaluate_agent_worker(model_name: str, initial_state: list, use_safety_filter: int, max_steps: int, episodes: int, worker_id: int):
     """
-    Save a slice of simulation_data to a checkpoint .npz file.
-    start_ep/end_ep are 1-based inclusive episode indices for naming.
+    Worker function to evaluate agent for a subset of episodes.
+    This function will be run in parallel by multiple processes.
+    Inputs:
+        model_name: Name of the model file (without .zip extension).
+        initial_state: Initial state configuration for environment.
+        use_safety_filter: Safety filter mode.
+        max_steps: Maximum steps per episode.
+        episodes: Number of episodes to run.
+        worker_id: ID of this worker process.
+    Returns:
+        Dictionary containing evaluation results.
     """
-    out_dir.mkdir(parents=True, exist_ok=True)
-    filename = f"{base_name}_ep{start_ep:04d}-{end_ep:04d}.npz"
-    out_path = out_dir / filename
-    np.savez(out_path, data=np.array(simulation_data, dtype=object))
-    print(f"\n[Checkpoint] Saved episodes {start_ep}-{end_ep} -> {out_path}")
-
-
-def evaluate_agent(model: SAC, eval_env: SatDynEnv, max_steps: int, episodes: int, schedule: dict,
-                   save_every: int = 1000):
-    """
-    Run Monte Carlo simulation over multiple episodes and save results.
-    Additionally saves checkpoint .npz files every `save_every` episodes,
-    and one final FULL file at the end.
-
-    Output:
-      - 10 files for 10k sims when save_every=1000
-      - 1 final FULL file for all 10k sims
-    """
-
-    timestamp = int(time.time())
-    scenario_id = schedule.get("scenario_id", "unknown")
-
-    # Folder to store all outputs for this run
-    base_dir = Path(__file__).resolve().parents[2]  # -> Code/
-    out_dir = base_dir / "evaluation_outputs" / f"{scenario_id}_{timestamp}"
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    base_name = f"evaluation_{scenario_id}_{timestamp}"
-
+    # Load model in worker process
+    model = load_agent(model_name)
+    
+    # Create environment in worker process
+    eval_env = create_evaluation_env(initial_state, use_safety_filter)
+    
     koz_violation_episodes = 0
     ep_rewards = []
     err_angles_final = []
@@ -208,9 +194,7 @@ def evaluate_agent(model: SAC, eval_env: SatDynEnv, max_steps: int, episodes: in
     chunk_start_ep = 1
 
     for episode in range(episodes):
-        ep_idx = episode + 1  # 1-based
-        print(f"Starting evaluation episode {ep_idx}/{episodes}...", end="\r")
-
+        print(f"Worker {worker_id}: Episode {episode+1}/{episodes}...", end="\r")
         times = np.linspace(0, max_steps/10, max_steps)  # Assuming dt=0.1s
         states = []
         torques = []
@@ -253,9 +237,9 @@ def evaluate_agent(model: SAC, eval_env: SatDynEnv, max_steps: int, episodes: in
         }
 
         simulation_data.append(episode_data)
-
-        # Episode summaries
-        min_margins_koz.append(eval_env.min_margin_koz * 180/np.pi)
+        
+        # Add episode results to evaluation lists
+        min_margins_koz.append(eval_env.min_margin_koz*180/np.pi)  # in degrees
         cnts_koz_violations.append(eval_env.entered_koz_count)
         ep_rewards.append(reward_cum)
 
@@ -282,12 +266,76 @@ def evaluate_agent(model: SAC, eval_env: SatDynEnv, max_steps: int, episodes: in
             chunk_start_ep = ep_idx + 1
 
     eval_env.close()
+    
+    # Return results from this worker
+    return {
+        "koz_violation_episodes": koz_violation_episodes,
+        "ep_rewards": ep_rewards,
+        "err_angles_final": err_angles_final,
+        "ang_vels_final": ang_vels_final,
+        "min_margins_koz": min_margins_koz,
+        "cnts_koz_violations": cnts_koz_violations,
+        "simulation_data": simulation_data
+    }
 
-    # ---- FINAL FULL SAVE ----
-    full_filename = f"{base_name}_FULL_ep0001-{episodes:04d}.npz"
-    full_path = out_dir / full_filename
-    np.savez(full_path, data=np.array(simulation_data, dtype=object))
-    print(f"\nSaved FULL evaluation data to {full_path}")
+
+def evaluate_agent(model_name: str, initial_state: list, use_safety_filter: int, max_steps: int, episodes: int, num_workers: int = 8):
+    """
+    Simulate the agent in parallel using multiple processes.
+    Inputs:
+        model_name: Name of the model file (without .zip extension).
+        initial_state: Initial state configuration for environment.
+        use_safety_filter: Safety filter mode.
+        max_steps: Maximum steps per episode.
+        episodes: Total number of episodes to run.
+        num_workers: Number of parallel worker processes (default: 8).
+    """
+    import multiprocessing as mp
+    
+    timestamp = time.time()
+    
+    # Divide episodes among workers
+    episodes_per_worker = episodes // num_workers
+    remaining_episodes = episodes % num_workers
+    
+    # Create list of episode counts for each worker
+    episode_counts = [episodes_per_worker] * num_workers
+    for i in range(remaining_episodes):
+        episode_counts[i] += 1
+    
+    print(f"Running {episodes} episodes across {num_workers} workers...")
+    print(f"Episodes per worker: {episode_counts}")
+    
+    # Create pool of workers
+    with mp.Pool(processes=num_workers) as pool:
+        # Start all workers in parallel
+        results = []
+        for worker_id in range(num_workers):
+            result = pool.apply_async(
+                evaluate_agent_worker,
+                args=(model_name, initial_state, use_safety_filter, max_steps, episode_counts[worker_id], worker_id)
+            )
+            results.append(result)
+        
+        # Wait for all workers to complete and collect results
+        worker_results = [r.get() for r in results]
+    
+    # Combine results from all workers
+    koz_violation_episodes = sum(r["koz_violation_episodes"] for r in worker_results)
+    ep_rewards = []
+    err_angles_final = []
+    ang_vels_final = []
+    min_margins_koz = []
+    cnts_koz_violations = []
+    simulation_data = []
+    
+    for r in worker_results:
+        ep_rewards.extend(r["ep_rewards"])
+        err_angles_final.extend(r["err_angles_final"])
+        ang_vels_final.extend(r["ang_vels_final"])
+        min_margins_koz.extend(r["min_margins_koz"])
+        cnts_koz_violations.extend(r["cnts_koz_violations"])
+        simulation_data.extend(r["simulation_data"])
 
     # Convert to numpy arrays for summary stats
     err_angles_final_array = np.array(err_angles_final)
@@ -536,32 +584,22 @@ def load_evaluation_data(file_path: str):
     print("Episodes with high torque (>0.0005 Nm):", end=" ")
     for i, episode_data in enumerate(data):
         if np.mean(np.linalg.norm(episode_data["torques"], axis=1)) > 0.0005:
-            print(i, end=",")
+            #print(i,end=",")
+            pass
 
     print("\nEpisodes with low reward (<-200):", end=" ")
     for i, episode_data in enumerate(data):
         if episode_data["cumulative_rewards"][-1] < -200:
-            print(i, end=",")
-    
-    print("\nEpisodes with KOZ violations:", end=" ")
-    for i, episode_data in enumerate(data):
-        if episode_data["cnt_Koz_violations"] > 0:
-            print(i, end=",")
-    
-    print()
+            #print(i,end=",")
+            pass
+    print(len(data))
     return data
         
+import multiprocessing
 
 ### MAIN ###
 if __name__ == "__main__":
-    # ===== CONFIGURATION =====
-    MODEL_NAME = "phase1_best1_latest"
-    SCHEDULE_NAME = "MC_P1_NoSafetyFilter"  # Without .json extension
-    
-    # USE_SAFETY_FILTER: 0 = off, 1 = applied during simulation, 2 = applied during training
-    USE_SAFETY_FILTER = 0  # Phase 1 without safety filter
-    
-    # ===== LOAD MODEL AND SCHEDULE =====
+    MODEL_NAME = "phase1_best1_ph2_sfty2_11100000"
     model = load_agent(MODEL_NAME)
     schedule = load_schedule(SCHEDULE_NAME)
     
@@ -582,16 +620,16 @@ if __name__ == "__main__":
     # simulation_data = simulate_agent(model, eval_env, MAX_STEPS)
     # plot_actual_attitude(simulation_data)
 
-    # ===== OPTION 2: Load saved evaluation data and plot specific episode =====
-    # Uncomment the lines below if you have saved evaluation data
-    # loaded = load_evaluation_data("evaluation_MC_P1_NoSafetyFilter_1234567890.npz")
-    # plot_actual_attitude(loaded[0])  # Change index to plot different episode
+    """ Uncomment the lines below if you have saved evaluation data (from evaluate_agent()) to load all the episodes.
+        loaded contains ALL episodes, therefore in loaded[] should be the index of the episode you want to plot.
+    """
+    #loaded = load_evaluation_data("evaluation_test_mp_800.npz")
+    #plot_actual_attitude(loaded[23])
 
-    # ===== OPTION 3: Run Monte Carlo simulation (10k episodes) =====
-    # Uncomment the lines below to run Monte Carlo simulation
-    # WARNING: This may take a long time depending on the number of episodes
+    """ Uncomment evaluate_agent() below to simulate the agent over multiple episodes and save the data at the end. """
     t_start = time.time()
-    evaluate_agent(model, eval_env, MAX_STEPS, episodes=schedule['number_of_simulations'], schedule=schedule)
+    # Run evaluation with 8 parallel workers and n episodes
+    evaluate_agent(MODEL_NAME, INITIAL_STATE, USE_SAFETY_FILTER, MAX_STEPS, episodes=800, num_workers=8)
     t_end = time.time()
     print()
     print(f"Evaluation time: {(t_end - t_start)/60:.2f} minutes ({(t_end - t_start)/3600:.2f} hours)")
