@@ -1,3 +1,10 @@
+"""
+The training environment for the satellite reorientation task.
+Includes the dynamics, reward function, and safety filter integration for the agent.
+
+Author: Cemal Yilmaz - 2026
+"""
+
 import gymnasium as gym
 import numpy as np
 from gymnasium import spaces
@@ -22,9 +29,7 @@ from safety_filter.SafetyFilter import safety_filter
 
 constants = get_constants()
 
-kp = 50
-kd = 500
-
+# Scaling factors for normalization in observations
 scale_torque = constants['u_max']
 scale_torque_norm = np.sqrt(scale_torque**2 + scale_torque**2 + scale_torque**2)  # Only 3 wheels now
 scale_angular_velocity_sat = 300.0
@@ -34,6 +39,13 @@ scale_margin_koz = np.pi  # radians
 
 @njit
 def sign_fun(x):
+    """
+    Sign function.
+    Args:
+        x: Input value.
+    Returns:
+        res: 1 if x >= 0, else -1.
+    """
     if x >= 0:
         sign = 1
     else:
@@ -42,6 +54,13 @@ def sign_fun(x):
 
 @njit
 def normalize_quaternion(q):
+    """
+    Normalize a quaternion to have unit norm.
+    Args:
+        q: Input quaternion as a numpy array [w, x, y, z].
+    Returns:
+        q_normalized: Normalized quaternion with unit norm.
+    """
     #norm = np.linalg.norm(q)
     norm = np.sqrt(q[0] ** 2 + q[1] ** 2 + q[2] ** 2 + q[3] ** 2)   # using custom calculation of norm in order to use numba
     if norm > 0:  # Avoid division by zero
@@ -50,6 +69,13 @@ def normalize_quaternion(q):
 
 @njit
 def normalize_vector(v):
+    """
+    Normalize a 3D vector to have unit norm.
+    Args:
+        v: Input vector as a numpy array [x, y, z].
+    Returns:
+        v_normalized: Normalized vector with unit norm.
+    """
     #norm = np.linalg.norm(v)
     norm = np.sqrt(v[0] ** 2 + v[1] ** 2 + v[2] ** 2)   # using custom calculation of norm in order to use numba
     if norm > 0:  # Avoid division by zero
@@ -57,18 +83,15 @@ def normalize_vector(v):
     return v  # Return unchanged if norm is zero
 
 @njit
-def torque_function(state, kp, kd):
-    # The desired quaternion is the identity quaternion
-    q0 = state[0]
-    q_vec = state[1:4]
-    omega_vec = state[4:7]
-        
-    torque = -kp * sign_fun(q0) * q_vec - kd * omega_vec
-    return torque
-
-@njit
 def quaternion_multiply(q1,q2):
-    """Multiply two quaternions q1 and q2."""
+    """
+    Multiply two quaternions q1 and q2.
+    Args:
+        q1: First quaternion as a numpy array [w, x, y, z].
+        q2: Second quaternion as a numpy array [w, x, y, z].
+    Returns:
+        res: The product of the two quaternions as a numpy array [w, x, y, z].
+    """
     w1, x1, y1, z1 = q1
     w2, x2, y2, z2 = q2
     return np.array([
@@ -81,8 +104,18 @@ def quaternion_multiply(q1,q2):
 
 @njit
 def rotate_vector_by_quaternion(v, q):
+    """
+    Rotate a vector v by a quaternion q.
+    Args:
+        v: Input vector as a numpy array [x, y, z].
+        q: Quaternion representing the rotation as a numpy array [w, x, y, z].
+    Returns:
+        v_rotated: The rotated vector as a numpy array [x, y, z].
+    """
     v = v.astype(np.float32)
     w, x, y, z = q
+
+    # Convert quaternion to rotation matrix
     R = np.array([
         [1 - 2*(y*y + z*z),     2*(x*y - z*w),       2*(x*z + y*w)],
         [2*(x*y + z*w),         1 - 2*(x*x + z*z),   2*(y*z - x*w)],
@@ -92,14 +125,23 @@ def rotate_vector_by_quaternion(v, q):
     return R @ v
 
 @njit
-def calc_margin_koz(q_array_initial, normal_vector_koz, half_angle_koz):
+def calc_margin_koz(q, normal_vector_koz, half_angle_koz):
+    """
+    Calculate the margin angle to the keep out zone defined by normal_vector_koz and half_angle_koz.
+    Args:
+        q: The current attitude quaternion of the satellite as a numpy array [w, x, y, z].
+        normal_vector_koz: The normal vector of the keep out zone in inertial frame as a numpy array [x, y, z].
+        half_angle_koz: The half angle of the keep out zone in radians.
+    Returns:
+        margin_angle: The margin angle to the keep out zone in radians.
+    """
     x_axis = np.array([1.0, 0.0, 0.0], dtype=np.float32)
-    body_axis_arr = rotate_vector_by_quaternion(x_axis, q_array_initial)
+    body_axis_arr = rotate_vector_by_quaternion(x_axis, q)
 
-    # Manual norm calculation for numba compatibility
-    norm_body = np.sqrt(body_axis_arr[0]**2 + body_axis_arr[1]**2 + body_axis_arr[2]**2)
-    norm_koz = np.sqrt(normal_vector_koz[0]**2 + normal_vector_koz[1]**2 + normal_vector_koz[2]**2)
+    norm_body = normalize_vector(body_axis_arr)
+    norm_koz = normalize_vector(normal_vector_koz)
     
+    # Calculate the angle between the satellite's body axis and the normal vector of the keep out zone using the dot product
     cos_theta = (body_axis_arr[0] * normal_vector_koz[0] + 
                  body_axis_arr[1] * normal_vector_koz[1] + 
                  body_axis_arr[2] * normal_vector_koz[2]) / (norm_body * norm_koz)
@@ -114,6 +156,18 @@ def calc_margin_koz(q_array_initial, normal_vector_koz, half_angle_koz):
 
 @njit
 def sat_ode(state, torque, inertia_total, inertia_wheels, wheels_position_matrix, inertia_combined_inv):
+    """
+    Calculate the time derivative of the state vector for the satellite dynamics.
+    Args:
+        state: The current state vector of the satellite.
+        torque: The control torque applied by the reaction wheels.
+        inertia_total: The total inertia matrix of the satellite.
+        inertia_wheels: The inertia matrix of the reaction wheels.
+        wheels_position_matrix: The matrix representing the position of the wheels relative to the satellite's center of mass.
+        inertia_combined_inv: The inverse of the combined inertia matrix used in the dynamics equations.
+    Returns:
+        state_dot: The time derivative of the state vector.
+    """
 
     state = state.astype(np.float32)
     torque = torque.astype(np.float32)
@@ -150,32 +204,21 @@ def sat_ode(state, torque, inertia_total, inertia_wheels, wheels_position_matrix
 
 
 @njit
-def reward_function(state, scale_torque_norm, episode_count, use_curr_koz_weight, use_koz_penalty=True):
+def reward_function(state, agent_action, safe_action, use_safety_filter):
     """
-    Reward function for satellite attitude control.
-    
+    Calculate the reward for the current state and action.
     Args:
-        state: Current state vector
-        scale_torque_norm: Normalization factor for torque
-        episode_count: Current episode number
-        use_curr_koz_weight: Whether to use curriculum learning for KOZ weight
-        use_koz_penalty: Whether to apply KOZ penalty (False for Phase 1 without safety filter)
+        state: The current state vector of the satellite.
+        agent_action: The action proposed by the agent before safety filtering.
+        safe_action: The action after applying the safety filter.
+        use_safety_filter: Flag indicating whether the safety filter is being used.
     """
     q0_current = state[0]
-    ang_vel_sat_1 = state[4]
-    ang_vel_sat_2 = state[5]
-    ang_vel_sat_3 = state[6]
     q0_prev = state[10]  
     torque_1 = state[14]
     torque_2 = state[15]
     torque_3 = state[16]
     margin_koz = state[20]
-    scale_torque_norm = np.float32(scale_torque_norm)
-
-    margin_safe = 0.05 # 3 deg in rad
-    violation_coeff = 10.0
-    buffer_coeff = 0.2
-    koz_weight = min(1.0, episode_count / 20.0)
     
     # Clamp q0 values to [-1, 1] to prevent acos() domain errors (NaN) with large torques
     # Using min/max instead of np.clip for numba compatibility with scalars
@@ -188,15 +231,8 @@ def reward_function(state, scale_torque_norm, episode_count, use_curr_koz_weight
     err_phi_current = err_phi_current * 180.0 / np.pi
     err_phi_prev = err_phi_prev * 180.0 / np.pi
 
-    safety_factor = min(1.0, margin_koz / margin_safe)
-    safety_factor = max(0.0, safety_factor)
-
     # Reward for reducing attitude error
     r1 = (err_phi_prev - err_phi_current)  # positive if error decreased
-
-    r2 = 0.0
-    #if np.sqrt(ang_vel_sat_1**2 + ang_vel_sat_2**2 + ang_vel_sat_3**2) >= 0.1745:  # 10 deg/s in rad/s
-        #r2 = -10.0  # small penalty for high angular velocity
 
     # Bonus for high accuracy
     r3 = 0.0
@@ -211,40 +247,47 @@ def reward_function(state, scale_torque_norm, episode_count, use_curr_koz_weight
     # ===== PHASE 1 WITHOUT SAFETY FILTER: KOZ PENALTY COMMENTED OUT =====
     # Penalty for entering / being close to keep out zone
     r5 = 0.0
-    # if use_koz_penalty:
-    #     if margin_koz <= 0.0:
-    #         r5 = -1.0
-    #     else:
-    #         r5 = -1.0*math.exp(-66.0*margin_koz)
-    # ====================================================================
+    if margin_koz <= 0.0:
+        r5 = -1.0
+    else:
+        r5 = -1.0*math.exp(-66.0*margin_koz)
 
-    return r1 + r2 + r3 + r4 + r5
+    # Penalty for using a different action than the safety filter suggests
+    r6 = 0.0
+    if use_safety_filter == 2:
+        r6 = - (abs(safe_action[0]-agent_action[0]) + abs(safe_action[1]-agent_action[1]) + abs(safe_action[2]-agent_action[2]))
+
+    return r1 + r3 + r4 + r5 + r6
+
 
 class SatDynEnv(gym.Env):
+    """
+    Custom Gym environment for satellite reorientation task with reaction wheel dynamics, safety filter integration, and custom reward function.
+    """
 
     metadata = {
         "render_modes": ["human", "rgb_array"],
         "render_fps": 30,
     }
 
-    def __init__(self, render_mode=None, initial_state=None, use_curr_koz_weight=False, use_safety_filter=0):
+    def __init__(self, render_mode=None, initial_state=None, use_safety_filter=0):
         """
         Initialize the satellite dynamics environment.
-        
         Args:
-            render_mode: Rendering mode ("human" or "rgb_array")
-            initial_state: Initial state parameters [min_angle, max_angle, min_ang_vel, max_ang_vel, max_steps, min_koz, max_koz]
-            use_curr_koz_weight: Whether to use curriculum learning for KOZ weight
-            use_safety_filter: 0 = off, 1 = applied during simulation, 2 = applied during training
+            render_mode: The mode for rendering the environment ("human" or "rgb_array").
+            initial_state: Optional list of parameters for randomizing the initial state 
+                [min_initial_angle, max_initial_angle, min_initial_angular_velocity, max_initial_angular_velocity, max_steps, min_half_angle_koz, max_half_angle_koz].
+            use_safety_filter: Flag to determine if the safety filter should be applied to the agent's actions 
+                (0 = no filter, 1 = filter applied after training, 2 = filter applied during training).
         """
         super(SatDynEnv).__init__()
 
         self.episode_count = 0
-        self.USE_CURR_KOZ_WEIGHT = use_curr_koz_weight
         self.USE_SAFETY_FILTER = use_safety_filter
         self.action_agent = np.zeros(3, dtype=np.float32) # for logging (comparison between agent and safety filter)
+        self.filter_log = ""
 
-        # Define action space as [torque_1, torque_2, torque_3]  (torques of 3 reaction wheels - 4th wheel deactivated)
+        # Define action space as [torque_1, torque_2, torque_3]
         # Value range [-scale_torque, scale_torque] for each component
         self.action_space = spaces.Box(low=-1, high=1, shape=(3,), dtype=np.float32)
 
@@ -253,7 +296,6 @@ class SatDynEnv(gym.Env):
         #   omega_1_prev, omega_2_prev, omega_3_prev, torque_1, torque_2, torque_3, 
         #   torque_1_prev, torque_2_prev, torque_3_prev, margin_koz]
         # Total: 4 + 3 + 3 + 1 + 3 + 3 + 3 + 1 = 21 dimensions
-        # previous q0 is augmented in the state vector since it will be used in the reward function.
         self.observation_space = spaces.Box(low= np.array([-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1], dtype=np.float32),
                                             high= np.array([1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], dtype=np.float32),
                                             dtype= np.float32)
@@ -261,13 +303,13 @@ class SatDynEnv(gym.Env):
         # Initial state
         self.render_mode = render_mode
         
-        # Randomization parameters for robust training
+        # If no initial state is provided, use default randomization parameters
         if initial_state is None:
             self.min_initial_angle = 0.0  # degrees - minimum initial attitude error
             self.max_initial_angle = 90.0  # degrees - maximum initial attitude error
             self.min_initial_angular_velocity = 0.0  # deg/s - minimum initial tumbling rate
             self.max_initial_angular_velocity = 0.1  # deg/s - maximum initial tumbling rate
-            self.max_steps = 1500
+            self.max_steps = 3000
             self.min_half_angle_koz = 0.0  # degrees
             self.max_half_angle_koz = 0.0  # degrees
         else:
@@ -286,7 +328,7 @@ class SatDynEnv(gym.Env):
         self.episode_torques_prev = []
         self.settled = False
         self.settling_time = -1  # -1 means not settled
-        self.settling_threshold_deg = 2.0  # degrees for considering "settled"
+        self.settling_threshold_deg = 0.25  # degrees for considering "settled"
         self.settling_velocity_threshold = 0.01  # rad/s for angular velocity
         self.min_margin_koz = 0.0
         self.entered_koz_count = 0
@@ -359,7 +401,14 @@ class SatDynEnv(gym.Env):
     def _generate_keep_out_zone(self, initial_quaternion, min_half_angle_deg, max_half_angle_deg):
         """
         Generates a keep out zone defined by a normal vector and half-angle.
-        Returns zero KOZ if min and max half-angles are both 0 (Phase 1 without safety filter).
+        Args:
+            initial_quaternion: The initial attitude quaternion of the satellite.
+            min_half_angle_deg: Minimum half-angle of the keep out zone in degrees.
+            max_half_angle_deg: Maximum half-angle of the keep out zone in degrees.
+        Returns:
+            res: A tuple containing:
+            normal_vector_koz: The normal vector of the keep out zone in inertial frame.
+            half_angle_koz: The half-angle of the keep out zone in radians.
         """
         # If KOZ is disabled (both min and max are 0), return dummy values
         if min_half_angle_deg == 0 and max_half_angle_deg == 0:
@@ -369,7 +418,6 @@ class SatDynEnv(gym.Env):
         initial_vector_boresight_inertial = rotate_vector_by_quaternion(self.x_axis, initial_quaternion) #r_F inertial frame
 
         # Calculate normal vector of keep out zone to be the bisector (middle between initial boresight and target boresight, same plane)
-        # TODO: test edge case 180°
         normal_vector_koz = normalize_vector(initial_vector_boresight_inertial + self.x_axis)
 
         # Random half-angle between min and max
@@ -377,11 +425,19 @@ class SatDynEnv(gym.Env):
 
         return normal_vector_koz, half_angle_koz
 
-    def reset(self, seed=None, options=None):
+    def reset(self, seed=None):
+        """
+        Reset the environment to an initial state and return the initial observation.
+        Args:
+            seed: Optional seed for random number generation to ensure reproducibility.
+        Returns:
+            The initial observation (state) of the environment.
+        """
         if seed is not None:
             np.random.seed(seed)
 
         self.episode_count += 1
+        self.filter_log = ""
         
         # Generate random initial attitude error (0° to max_initial_angle)
         q_array_initial = self._generate_quaternion_with_vector_angle(self.x_axis, self.min_initial_angle, self.max_initial_angle)
@@ -446,13 +502,29 @@ class SatDynEnv(gym.Env):
         return obs.astype(np.float32), {}
 
     def step(self, action):
-        # Store agent's action
-        #self.action_agent = action
+        """
+        Step the environment by applying the given action and updating the state.
+        Args:
+            action: The action to apply, a numpy array of shape (3,) representing the torques for the 3 reaction wheels.
+        Returns:
+            res: A tuple containing:
+            obs: The new observation (state) after applying the action.
+            reward: The reward obtained from taking the action.
+            done: A boolean indicating whether the episode has ended.
+            truncated: A boolean indicating whether the episode was truncated (not used in this environment).
+            info: A dictionary containing additional information and custom metrics.
+            action: The action that was actually applied after safety filtering (for logging purposes).
+        """
+        agent_action = np.zeros(3, dtype=np.float32)
+        safe_action = np.zeros(3, dtype=np.float32)
 
         # Apply safety filter only if enabled (USE_SAFETY_FILTER > 0)
         if self.USE_SAFETY_FILTER > 0:
             # Apply safety filter for agent's action
-            safe_action = safety_filter(action*scale_torque, 0, self.state, self.normal_vector_koz, self.half_angle_koz, self.episode_count, self.steps) / scale_torque
+            agent_action = action
+            safe_action, step_filter_log = safety_filter(action*scale_torque, 0, self.state, self.normal_vector_koz, self.half_angle_koz, self.episode_count, self.steps)
+            safe_action = safe_action / scale_torque
+            self.filter_log += step_filter_log
             action = safe_action
 
         q0_prev = self.state[0]     # store current q0 before integration
@@ -496,9 +568,8 @@ class SatDynEnv(gym.Env):
         if self.state[20] < 0.0:
             self.entered_koz_count += 1
 
-        # Calculate reward - KOZ penalty disabled for Phase 1 without safety filter (use_koz_penalty=False)
-        use_koz_penalty = (self.USE_SAFETY_FILTER > 0)  # Only apply KOZ penalty if safety filter is enabled
-        reward = reward_function(self.state, scale_torque_norm, self.episode_count, self.USE_CURR_KOZ_WEIGHT, use_koz_penalty)
+        # Calculate reward
+        reward = reward_function(self.state, scale_torque_norm, self.episode_count, self.USE_CURR_KOZ_WEIGHT, agent_action, safe_action, self.USE_SAFETY_FILTER)
         
         # Track custom metrics
         
@@ -556,12 +627,16 @@ class SatDynEnv(gym.Env):
                 "custom_metrics/entered_koz_count": float(self.entered_koz_count)
             })
 
-        return obs, reward, done, truncated, info
+        return obs, reward, done, truncated, info, action
 
     def render(self):
+        """
+        Render the current state of the environment.
+        Depending on the render mode, it either prints the state information or returns an RGB array representing the satellite's attitude.
+        """
         attitude = self.state[:4]
         omega = self.state[4:7]*scale_angular_velocity_sat
-        torque = torque_function(self.state, kp, kd)
+        torque = self.state[14:17]*scale_torque
 
         if self.render_mode == "human":
             print(f"Step: {self.steps}, Attitude: {attitude}, Omega: {omega}, Torque: {torque}")
