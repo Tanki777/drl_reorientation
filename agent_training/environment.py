@@ -400,12 +400,19 @@ class SatDynEnv(gym.Env):
     def _generate_keep_out_zone(self, initial_quaternion, min_half_angle_deg, max_half_angle_deg):
         """
         Generates a keep out zone defined by a normal vector and half-angle.
+        Args:
+            initial_quaternion: The initial attitude quaternion of the satellite.
+            min_half_angle_deg: Minimum half-angle of the keep out zone in degrees.
+            max_half_angle_deg: Maximum half-angle of the keep out zone in degrees.
+        Returns:
+            res: A tuple containing:
+            normal_vector_koz: The normal vector of the keep out zone in inertial frame.
+            half_angle_koz: The half-angle of the keep out zone in radians.
         """
         # Convert initial boresight quaternion to vector in inertial frame
         initial_vector_boresight_inertial = rotate_vector_by_quaternion(self.x_axis, initial_quaternion) #r_F inertial frame
 
         # Calculate normal vector of keep out zone to be the bisector (middle between initial boresight and target boresight, same plane)
-        # TODO: test edge case 180°
         normal_vector_koz = normalize_vector(initial_vector_boresight_inertial + self.x_axis)
 
         # Random half-angle between min and max
@@ -413,7 +420,14 @@ class SatDynEnv(gym.Env):
 
         return normal_vector_koz, half_angle_koz
 
-    def reset(self, seed=None, options=None):
+    def reset(self, seed=None):
+        """
+        Reset the environment to an initial state and return the initial observation.
+        Args:
+            seed: Optional seed for random number generation to ensure reproducibility.
+        Returns:
+            The initial observation (state) of the environment.
+        """
         if seed is not None:
             np.random.seed(seed)
 
@@ -483,8 +497,19 @@ class SatDynEnv(gym.Env):
         return obs.astype(np.float32), {}
 
     def step(self, action):
-        # Store agent's action
-        #self.action_agent = action
+        """
+        Step the environment by applying the given action and updating the state.
+        Args:
+            action: The action to apply, a numpy array of shape (3,) representing the torques for the 3 reaction wheels.
+        Returns:
+            res: A tuple containing:
+            obs: The new observation (state) after applying the action.
+            reward: The reward obtained from taking the action.
+            done: A boolean indicating whether the episode has ended.
+            truncated: A boolean indicating whether the episode was truncated (not used in this environment).
+            info: A dictionary containing additional information and custom metrics.
+            action: The action that was actually applied after safety filtering (for logging purposes).
+        """
         agent_action = np.zeros(3, dtype=np.float32)
         safe_action = np.zeros(3, dtype=np.float32)
 
@@ -598,6 +623,10 @@ class SatDynEnv(gym.Env):
         return obs, reward, done, truncated, info, action
 
     def render(self):
+        """
+        Render the current state of the environment.
+        Depending on the render mode, it either prints the state information or returns an RGB array representing the satellite's attitude.
+        """
         attitude = self.state[:4]
         omega = self.state[4:7]*scale_angular_velocity_sat
         torque = self.state[14:17]*scale_torque
