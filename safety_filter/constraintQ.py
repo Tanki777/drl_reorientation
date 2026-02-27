@@ -47,13 +47,13 @@ def phi(t, state, u, r_F, constants, n_F): # r_F: boresight vector in body frame
     return phi.astype(np.float32)
 
 
-def constraintQ(t, state, constants, index, outdata, n_F, theta_F):
+def constraintQ(t, state, constants, index, outdata, n_F, theta_F, episode_count, episode_step):
 # Returns the A and b constraint matrices for ensuring avoidance is achieved.
 # Results should be fed into QP as  A*u ≤ b (QP probably Quadratic Programming (argmin part?) in CalculateU.m)
 
     r_F = constants['r_F']
 #!!!!!!!!!!!!!!!! TODO load n_F and theta_F that have been initialised for this episode !!!!!!!!!!!!!!!!
-
+    q_log = ""
 # M_F matrix components
     m1 = np.dot(r_F, n_F) - np.cos(theta_F) # scalar
     m2 = np.cross(r_F, n_F) #vector
@@ -83,10 +83,12 @@ def constraintQ(t, state, constants, index, outdata, n_F, theta_F):
     h = outdata['k'][index] + absSq(outdata['kdot'][index]) / (2 *mu)
     
     if h > 0: #???? figure out difference between h and H at Constraint.m  
-        print('Excessive H',end=",")   
+        print('Excessive H',end=",")
+        q_log += f"Excessive H at episode {episode_count}, step {episode_step}\n" 
 
     if outdata['k'][index] > 0:
-        print('Excessive h',end=",")     
+        print('Excessive h',end=",")
+        q_log += f"Excessive h at episode {episode_count}, step {episode_step}\n"  
     outdata['H'][index] = h
 
 
@@ -99,6 +101,7 @@ def constraintQ(t, state, constants, index, outdata, n_F, theta_F):
         phi_req1 = fsolve(lambda y: Pk(y) + delta_2, 0)[0]
     except Exception as e:
         print(f"fsolve failed for phi_req1: {e}")
+        q_log += f"fsolve failed for phi_req1: {e} at episode {episode_count}, step {episode_step}\n"
         phi_req1 = 0 # Default or error value
 
 ### phi call with u_zero is the ZERO control input (no torques).
@@ -115,6 +118,7 @@ def constraintQ(t, state, constants, index, outdata, n_F, theta_F):
         phi_req2 = fsolve(lambda y: Ph(y) + Delta_2, 0)[0]
     except Exception as e:
         print(f"fsolve failed for phi_req2: {e}")
+        q_log += f"fsolve failed for phi_req2: {e} at episode {episode_count}, step {episode_step}\n"
         phi_req2 = 0 # Default or error value
 
 ### "how much MORE we need beyond zero control"(?)
@@ -136,4 +140,4 @@ def constraintQ(t, state, constants, index, outdata, n_F, theta_F):
 
 # A should be returned as a 1D array of 4 elements or converted to a 2D array (1x4) depending on the expected 
 # format for the QP solver. Will return it as a 1D numpy array for simplicity, as it's the result of the loop.
-    return A, b
+    return A, b, q_log

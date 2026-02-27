@@ -9,6 +9,7 @@ from agent_training.constants import get_constants
 outdata = {} # Define outdata globally first
 initialized = False # Flag to track status
 
+
 def initialize():
     global constants, outdata, initialized
     if initialized: # stop if already loaded
@@ -30,10 +31,13 @@ def safety_filter(wheels_desired, t, state, n_F, theta_F, episode_count, episode
     global constants, outdata
 
     start = time.time()
+
+    filter_log = ""
     
 # Compute constraints
     H0, A0, b0 = constraintE(t, state, constants, 0, outdata)  # Energy constraint
-    A1, b1 = constraintQ(t, state, constants, 1, outdata, n_F, theta_F)  # Pointing constraint
+    A1, b1, q_log = constraintQ(t, state, constants, 1, outdata, n_F, theta_F, episode_count, episode_step)  # Pointing constraint
+    filter_log += q_log
     
 # Setup QP optimization
     nonlcon_omega = lambda u: u.T @ H0 @ u + A0 @ u - b0  # Nonlinear energy constraint
@@ -86,15 +90,18 @@ def safety_filter(wheels_desired, t, state, n_F, theta_F, episode_count, episode
         
     except Exception as e:
         print(f"Safety filter optimization error: {e}")
+        filter_log += f"Safety filter optimization error: {e} at episode {episode_count}, step {episode_step}\n"
         u_safe = wheels_desired
         status = 0
     
     if status < 1:
         print(f"[{result.message},{episode_count},{episode_step}]",end=",")
+        filter_log += f"{result.message} at episode {episode_count}, step {episode_step}\n"
         u_safe = wheels_desired
     
     if np.any(np.isnan(u_safe)):
         print('Warning: NaN values in safe control output')
+        filter_log += f"NaN values in safe control output at episode {episode_count}, step {episode_step}\n"
         u_safe = wheels_desired
     
     # Store output data
@@ -103,4 +110,4 @@ def safety_filter(wheels_desired, t, state, n_F, theta_F, episode_count, episode
 
     #print(f"u_safe: {u_safe/7e-4}")
     
-    return u_safe
+    return u_safe, filter_log

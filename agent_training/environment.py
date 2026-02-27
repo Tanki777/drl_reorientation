@@ -150,7 +150,7 @@ def sat_ode(state, torque, inertia_total, inertia_wheels, wheels_position_matrix
 
 
 @njit
-def reward_function(state, scale_torque_norm, episode_count, use_curr_koz_weight):
+def reward_function(state, scale_torque_norm, episode_count, use_curr_koz_weight, agent_action, safe_action, use_safety_filter):
     q0_current = state[0]
     ang_vel_sat_1 = state[4]
     ang_vel_sat_2 = state[5]
@@ -205,10 +205,14 @@ def reward_function(state, scale_torque_norm, episode_count, use_curr_koz_weight
     else:
         r5 = -1.0*math.exp(-66.0*margin_koz)
 
+    # Penalty for using a different action than the safety filter suggests
+    r6 = 0.0
+    if use_safety_filter == 2:
+        r6 = - (abs(safe_action[0]-agent_action[0]) + abs(safe_action[1]-agent_action[1]) + abs(safe_action[2]-agent_action[2]))
+
     
 
-    return r1 + r2 + r3 + r4 + r5
-
+    return r1 + r2 + r3 + r4 + r5 + r6
 class SatDynEnv(gym.Env):
 
     metadata = {
@@ -223,6 +227,7 @@ class SatDynEnv(gym.Env):
         self.USE_CURR_KOZ_WEIGHT = use_curr_koz_weight
         self.USE_SAFETY_FILTER = use_safety_filter
         self.action_agent = np.zeros(3, dtype=np.float32) # for logging (comparison between agent and safety filter)
+        self.filter_log = ""
 
         # Define action space as [torque_1, torque_2, torque_3]  (torques of 3 reaction wheels - 4th wheel deactivated)
         # Value range [-scale_torque, scale_torque] for each component
@@ -357,6 +362,7 @@ class SatDynEnv(gym.Env):
             np.random.seed(seed)
 
         self.episode_count += 1
+        self.filter_log = ""
         
         # Generate random initial attitude error (0° to max_initial_angle)
         q_array_initial = self._generate_quaternion_with_vector_angle(self.x_axis, self.min_initial_angle, self.max_initial_angle)
@@ -423,10 +429,15 @@ class SatDynEnv(gym.Env):
     def step(self, action):
         # Store agent's action
         #self.action_agent = action
+        agent_action = np.zeros(3, dtype=np.float32)
+        safe_action = np.zeros(3, dtype=np.float32)
 
         if self.USE_SAFETY_FILTER > 0:
             # Apply safety filter for agent's action
-            safe_action = safety_filter(action*scale_torque, 0, self.state, self.normal_vector_koz, self.half_angle_koz, self.episode_count, self.steps) / scale_torque
+            agent_action = action
+            safe_action, step_filter_log = safety_filter(action*scale_torque, 0, self.state, self.normal_vector_koz, self.half_angle_koz, self.episode_count, self.steps)
+            safe_action = safe_action / scale_torque
+            self.filter_log += step_filter_log
             action = safe_action
 
         q0_prev = self.state[0]     # store current q0 before integration
@@ -471,7 +482,7 @@ class SatDynEnv(gym.Env):
             self.entered_koz_count += 1
 
         # Calculate reward
-        reward = reward_function(self.state, scale_torque_norm, self.episode_count, self.USE_CURR_KOZ_WEIGHT)
+        reward = reward_function(self.state, scale_torque_norm, self.episode_count, self.USE_CURR_KOZ_WEIGHT, agent_action, safe_action, self.USE_SAFETY_FILTER)
         
         # Track custom metrics
         
@@ -528,7 +539,7 @@ class SatDynEnv(gym.Env):
                 "custom_metrics/entered_koz_count": float(self.entered_koz_count)
             })
 
-        return obs, reward, done, truncated, info
+        return obs, reward, done, truncated, info, action
 
     def render(self):
         attitude = self.state[:4]
