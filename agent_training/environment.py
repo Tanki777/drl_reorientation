@@ -569,7 +569,7 @@ class SatDynEnv(gym.Env):
             self.entered_koz_count += 1
 
         # Calculate reward
-        reward = reward_function(self.state, scale_torque_norm, self.episode_count, self.USE_CURR_KOZ_WEIGHT, agent_action, safe_action, self.USE_SAFETY_FILTER)
+        reward = reward_function(self.state, agent_action, safe_action, self.USE_SAFETY_FILTER)
         
         # Track custom metrics
         
