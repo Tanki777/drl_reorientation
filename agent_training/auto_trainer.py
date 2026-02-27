@@ -1,3 +1,9 @@
+"""
+"Auto" trainer to train different phases using a schedule. Utilizes the trainer.
+
+Author: Cemal Yilmaz - 2026
+"""
+
 import json
 import os
 import time
@@ -22,6 +28,14 @@ if not os.path.exists(schedule_dir):
 
 
 def load_schedule(schedule_file_name):
+    """
+    Loads a training schedule.
+    
+    Args:
+        schedule_file_name: Name of the schedule file (e.g., "phase1.json")
+    Returns:
+        schedule: Loaded schedule dictionary
+    """
     schedule_file = os.path.join(schedule_dir, schedule_file_name)
     try:
         with open(schedule_file, 'r') as f:
@@ -58,6 +72,14 @@ def load_model_metadata(model_name):
 
 
 def create_model_metadata(model_name, schedule):
+    """
+    Create model metadata based on the schedule.
+    Args:
+        model_name: Name of the model for which to create metadata
+        schedule: The schedule dictionary to use for metadata creation
+    Returns:
+        metadata: Created metadata dictionary
+    """
     # Create meta header
     metadata = {
         "model_name": model_name,
@@ -78,6 +100,13 @@ def create_model_metadata(model_name, schedule):
 
 
 def save_model_metadata(model_name, metadata):
+    """
+    Save model metadata to a file.
+    Args:
+        model_name: Name of the model for which to save metadata
+        metadata: The metadata dictionary to save
+    
+    """
     # Save metadata to file
     metadata_file = os.path.join(meta_dir, f"{model_name}.meta")
     with open(metadata_file, 'w') as f:
@@ -85,6 +114,18 @@ def save_model_metadata(model_name, metadata):
 
 
 def create_or_load_model(continue_training, model_name, env):
+    """
+    Create a new model or load an existing one based on the continue_training flag.
+    Args:
+        continue_training: Boolean flag indicating whether to continue training an existing model
+        model_name: Name of the model to create or load
+        env: The training environment to use for model creation or loading
+    Returns:
+        res: A tuple containing:
+        model: The created or loaded model
+        save_path: The path where the model is saved
+        latest_model_path: The path to the latest model file
+    """
     # Load model and metadata
     if continue_training:
         model, save_path, latest_model_path = trainer.create_or_load_model(env, continue_training, model_name, trainer.log_path)
@@ -95,7 +136,15 @@ def create_or_load_model(continue_training, model_name, env):
     return model, save_path, latest_model_path
 
 
-def do_scheduled_training(model_name, schedule, continue_training, use_koz_weight, use_safety_filter):
+def do_scheduled_training(model_name, schedule, continue_training, use_safety_filter):
+    """
+    Perform scheduled training based on the provided schedule and parameters.
+    Args:
+        model_name: Name of the model to train
+        schedule: The schedule dictionary containing training phases
+        continue_training: Boolean flag indicating whether to continue training an existing model
+        use_safety_filter: Integer flag indicating safety filter usage (0: no filter, 1: filter applied after training, 2: train with filter)
+    """
     # Get training phases
     phases = schedule.get("phases", [])
     phase_count = len(phases)
@@ -144,7 +193,7 @@ def do_scheduled_training(model_name, schedule, continue_training, use_koz_weigh
         print(f"|---Training for {timesteps_left} timesteps...")
 
         # Create the training environment
-        env = trainer.create_environment(model_name, initial_state=initial_state, phase_name=phase_name, use_curr_koz_weight=use_koz_weight, use_safety_filter=use_safety_filter)
+        env = trainer.create_environment(model_name, initial_state=initial_state, phase_name=phase_name, use_safety_filter=use_safety_filter)
 
         # Create or load the model based on CONTINUE_TRAINING
         model, save_path, latest_model_path = create_or_load_model(continue_training, model_name, env)
@@ -167,7 +216,6 @@ if __name__ == "__main__":
     # Define which schedule to use
     SCHEDULE_FILE_NAME = "phase2_1.json"
     CONTINUE_TRAINING = True
-    USE_KOZ_WEIGHT = False
     USE_SAFETY_FILTER = 1  # 0: no filter, 1: filter applied, 2: train with filter
     MODEL_NAME = "phase1_best1_3cont2"
 
@@ -178,7 +226,7 @@ if __name__ == "__main__":
     tensorboard_process = trainer.start_tensorboard()
 
     # Perform scheduled training
-    do_scheduled_training(MODEL_NAME, schedule, CONTINUE_TRAINING, USE_KOZ_WEIGHT, USE_SAFETY_FILTER)
+    do_scheduled_training(MODEL_NAME, schedule, CONTINUE_TRAINING, USE_SAFETY_FILTER)
 
     # Stop TensorBoard server on ctrl+C
     try:

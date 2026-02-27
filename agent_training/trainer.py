@@ -1,3 +1,9 @@
+"""
+Barebone training script. Includes environment creation, model loading/creation, training loop with custom callback for logging and saving, and TensorBoard server management.
+
+Author: Cemal Yilmaz - 2026
+"""
+
 import os
 import time
 import datetime
@@ -8,7 +14,6 @@ from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.logger import HParam
 import environment as sat_env
 import subprocess
-import torch
 
 # Terminal colors
 RED_START = "\033[91m"
@@ -27,6 +32,10 @@ models_path = os.path.join(repo_parent_dir, "models")
 replay_buffer_path = os.path.join(repo_parent_dir, "models_replay_buffers")
 
 class CustomCallback(BaseCallback):
+    """
+    Custom callback for logging additional metrics to TensorBoard and saving the model at regular intervals.
+    Logs custom metrics from the environment info dict at the end of each rollout and saves the model every `save_interval` timesteps. Also logs hyperparameters at the start of training.
+    """
     def __init__(self, check_freq, save_interval, model_name, verbose=1):
         super().__init__(verbose)
         self.check_freq = check_freq
@@ -176,9 +185,14 @@ def stop_tensorboard(process):
             print(f"|-----{RED_START}Error stopping TensorBoard: {e}{COLOR_END}")
 
 
-def create_environment(model_name, initial_state=None, phase_name=None, use_curr_koz_weight=False, use_safety_filter=0):
+def create_environment(model_name, initial_state=None, phase_name=None, use_safety_filter=0):
     """
     Create the training environment
+    Args:
+        model_name: Name of the model for tensorboard logging
+        initial_state: Optional initial state to reset the environment to
+        phase_name: Optional phase name to include in monitor log filename
+        use_safety_filter: Whether to use the safety filter in the environment (0 = no filter, 1 = filter applied after training, 2 = filter applied during training)
     Returns:
         env: The created and wrapped environment
     """
@@ -193,14 +207,14 @@ def create_environment(model_name, initial_state=None, phase_name=None, use_curr
     # Create vectorized environment with 16 parallel instances
     if initial_state is not None:
         # Need to use a lambda to pass initial_state parameter
-        env = make_vec_env(lambda: sat_env.SatDynEnv(initial_state=initial_state, use_curr_koz_weight=use_curr_koz_weight, use_safety_filter=use_safety_filter), n_envs=16)
+        env = make_vec_env(lambda: sat_env.SatDynEnv(initial_state=initial_state, use_safety_filter=use_safety_filter), n_envs=16)
 
     else:
         env = make_vec_env(sat_env.SatDynEnv, n_envs=16)
     
     # If phase name is available, use it in the monitor log filename
     if phase_name:
-        phase_name = phase_name.replace(" ", "_").replace(":", "")  # Clean phase name for filename
+        phase_name = phase_name.replace(" ", "_").replace(":", "")  # whitespace and colon can cause issues in filenames
         monitor_log_file = os.path.join(monitor_dir, f"{model_name}_{phase_name}")
     
     # If phase name not available, use timestamp
@@ -235,6 +249,7 @@ def create_or_load_model(env, continue_training, model_name, log_path):
         model_name: Name of the model file
         log_path: Path for tensorboard logs
     Returns:
+        res: A tuple containing:
         model: The created or loaded SAC model
         save_path: Path where the model will be saved
         latest_model_path: Path to the latest saved model
@@ -293,12 +308,11 @@ def create_or_load_model(env, continue_training, model_name, log_path):
     return model, save_path, latest_model_path
 
 
-def train_agent(model, save_path, total_timesteps, check_freq, save_interval, model_name):
+def train_agent(model, total_timesteps, check_freq, save_interval, model_name):
     """
     Train the agent model with custom callback for logging and saving.
     Args:
         model: The SAC model to train
-        save_path: Base path to save the model
         total_timesteps: Number of timesteps to train
         check_freq: Frequency of callback checks
         save_interval: Interval of timesteps to save the model
@@ -334,6 +348,7 @@ def save_model(model, model_name, save_latest=True):
     Args:
         model: The trained SAC model
         model_name: Name of the model
+        save_latest: Whether to also save the model as the latest version for future loading
     """
     # Save the updated model
     print("|")
@@ -365,10 +380,11 @@ def save_model(model, model_name, save_latest=True):
         print(f"|-------Latest: {latest_replay_path}")
     print(f"|-------Backup: {backup_path_replay}")
 
+
 if __name__ == "__main__":
     # Training configuration
     CONTINUE_TRAINING = True  # Set to True to load existing model, False for fresh start
-    MODEL_NAME = "sac_sat_faster_2"  # Base name for saved models
+    MODEL_NAME = "sac_test"  # Base name for saved models
     TRAINING_TIMESTEPS = 10_000  # Number of timesteps per training session
     CHECK_FREQ = 500  # Frequency of callback checks every CHECK_FREQ timesteps
     SAVE_INTERVAL = 100_000  # Model backup saved after every SAVE_INTERVAL timesteps
@@ -383,7 +399,7 @@ if __name__ == "__main__":
     tensorboard_process = start_tensorboard()
     
     # Train the agent model
-    model = train_agent(model, save_path, TRAINING_TIMESTEPS, CHECK_FREQ, SAVE_INTERVAL, MODEL_NAME)
+    model = train_agent(model, TRAINING_TIMESTEPS, CHECK_FREQ, SAVE_INTERVAL, MODEL_NAME)
 
     # Save the trained model
     save_model(model, MODEL_NAME)

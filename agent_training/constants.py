@@ -1,3 +1,10 @@
+"""
+Contains all constants.
+
+Author: Orfeas Koulamas - 2026
+Modified by: Cemal Yilmaz - 2026
+"""
+
 #This file is imported by SafetyFilter.py, constraintE.py, and constraintQ.py
 import numpy as np
 

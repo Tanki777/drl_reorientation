@@ -1,3 +1,9 @@
+"""
+Simulate the satellite dynamics in the environment and plot the actual attitude trajectory based on the rotation axis and angle phi.
+
+Author: Cemal Yilmaz - 2026
+"""
+
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib
@@ -7,6 +13,11 @@ from environment import SatDynEnv, scale_torque, scale_angular_velocity_sat, sca
 def create_simulation_env(initial_state):
     """
     Create the simulation environment.
+    Args:
+        initial_state: A list containing the initial state parameters 
+            [min_initial_error_angle, max_initial_error_angle, min_initial_angular_velocity, max_initial_angular_velocity, max_steps, min_half_angle_koz, max_half_angle_koz]
+    Returns:
+        sim_env: The created simulation environment
     """
     sim_env = SatDynEnv(render_mode="rgb_array", initial_state=initial_state)
     return sim_env
@@ -16,6 +27,10 @@ def action_schedule(t):
     """
     Yields an action based on the current time t.
     Actions are between -1 and 1 and correspond to -0.0007 Nm and +0.0007 NM
+    Args:
+        t: Current time in seconds
+    Returns:
+        action: A numpy array of shape (3,) containing the action for each of the 3 wheels
     """
     action = np.zeros(3)
 
@@ -35,6 +50,10 @@ def action_schedule(t):
 def start_simulation(env: SatDynEnv):
     """
     Start the simulation in the given environment.
+    Args:
+        env: The simulation environment to run
+    Returns:
+        simulation_data: A dictionary containing the simulation data for plotting
     """
     observation = env.reset()
     times = np.linspace(0, env.max_steps/10, env.max_steps)  # Assuming dt=0.1s
@@ -73,14 +92,17 @@ def start_simulation(env: SatDynEnv):
 
 
 def plot_actual_attitude(simulation_data: dict):
-    """Plot the actual satellite attitude trajectory based on rotation axis and angle phi"""
+    """
+    Plot the actual satellite attitude trajectory based on rotation axis and angle phi
+    Args:
+        simulation_data: A dictionary containing the simulation data for plotting
+    """
 
     matplotlib.use("TkAgg")
 
     # Parse quaternion and angular velocity components
     q_0, q_1, q_2, q_3 = simulation_data["quaternion"][:, 0], simulation_data["quaternion"][:, 1], simulation_data["quaternion"][:, 2], simulation_data["quaternion"][:, 3]
     omega_x, omega_y, omega_z = simulation_data["omega"][:, 0], simulation_data["omega"][:, 1], simulation_data["omega"][:, 2]
-    norm_q = simulation_data["quaternion_norm"]
     torques_array = simulation_data["torques"]
     times = simulation_data["times"]
     wheel_velocities = simulation_data["wheel_velocities"]
@@ -118,11 +140,8 @@ def plot_actual_attitude(simulation_data: dict):
     
     # Convert to degrees
     rotation_angles_deg = rotation_angles * 180 / np.pi
-    
-    #axis_x = rotation_axes[:, 0]
-    #axis_y = rotation_axes[:, 1] 
-    #axis_z = rotation_axes[:, 2]
 
+    # Calculate body axis (boresight) trajectory from quaternions 
     body_axis_arr = []
     for i in range(len(q_0)):
         q = [q_0[i], q_1[i], q_2[i], q_3[i]]
@@ -159,25 +178,31 @@ def plot_actual_attitude(simulation_data: dict):
     ax1.scatter(body_axis_arr[-1, 0], body_axis_arr[-1, 1], body_axis_arr[-1, 2], color="red", s=100, label="End")
     ax1.scatter(1, 0, 0, color="gold", s=150, marker="*", label="Target")
     
-    
+
     def _generate_keep_out_zone_circle():
         # Create circle points for the keep out zone
+
         theta = np.linspace(0, 2 * np.pi, 100)
         circle_points = []
+
         for angle in theta:
             # Generate points on the circle in the plane perpendicular to the normal vector
             v = np.array([np.cos(angle), np.sin(angle), 0])
+
             # Rotate v to be perpendicular to koz_normal
             if np.allclose(normal_vector_koz, [0, 0, 1]):
                 rot_axis = np.array([1, 0, 0])
             else:
                 rot_axis = np.cross([0, 0, 1], normal_vector_koz)
                 rot_axis /= np.linalg.norm(rot_axis)
+
             angle_to_rotate = np.arccos(np.dot(normal_vector_koz, [0, 0, 1]))
+
             # Rodrigues' rotation formula
             v_rotated = (v * np.cos(angle_to_rotate) +
                         np.cross(rot_axis, v) * np.sin(angle_to_rotate) +
                         rot_axis * np.dot(rot_axis, v) * (1 - np.cos(angle_to_rotate)))
+            
             # Scale to the radius of the keep out zone circle
             radius = np.sin(half_angle_koz)
             circle_point = normal_vector_koz * np.cos(half_angle_koz) + v_rotated * radius

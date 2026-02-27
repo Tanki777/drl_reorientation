@@ -1,3 +1,9 @@
+"""
+Visualization tools.
+
+Author: Cemal Yilmaz - 2026
+"""
+
 import os
 import matplotlib.pyplot as plt
 import matplotlib
@@ -5,17 +11,16 @@ from stable_baselines3.common.evaluation import evaluate_policy
 from stable_baselines3 import SAC
 import numpy as np
 import imageio.v2 as imageio
-import csv
 import time
 
-from environment import SatDynEnv, scale_torque, scale_angular_velocity_sat, scale_angular_velocity_wheels, scale_margin_koz
+from environment import SatDynEnv, scale_torque, scale_angular_velocity_sat, scale_margin_koz
 from constants import dt
 
 
 def load_agent(model_name: str):
     """
     Load the agent to visualize.
-    Inputs:
+    Args:
         model_name: Name of the model file (without .zip extension).
     Returns:
         model: The loaded SAC model.
@@ -30,6 +35,11 @@ def load_agent(model_name: str):
 def create_evaluation_env(initial_state, use_safety_filter):
     """
     Create the evaluation environment.
+    Args:
+        initial_state: Initial state configuration for environment.
+        use_safety_filter: Safety filter mode.
+    Returns:
+        eval_env: The created evaluation environment.
     """
     eval_env = SatDynEnv(render_mode="rgb_array", initial_state=initial_state, use_safety_filter=use_safety_filter)
     return eval_env
@@ -38,7 +48,7 @@ def create_evaluation_env(initial_state, use_safety_filter):
 def print_rewards(model, eval_env, n_eval_episodes=10):
     """
     Evaluate and print the mean and std reward of the model.
-    Inputs:
+    Args:
         model: The trained model.
         eval_env: The evaluation environment.
         n_eval_episodes: Number of episodes to evaluate.
@@ -47,12 +57,16 @@ def print_rewards(model, eval_env, n_eval_episodes=10):
     print(f"Mean reward: {mean_reward:.2f} +/- {std_reward:.2f}")
 
 
-def simulate_agent(model: SAC, eval_env: SatDynEnv, max_steps: int):
+def simulate_agent(model: SAC, eval_env: SatDynEnv, max_steps: int, create_video: bool = False):
     """
     Simulate the agent in the evaluation environment.
-    Inputs:
+    Args:
         model: The trained model.
         eval_env: The evaluation environment.
+        max_steps: Maximum number of steps to simulate.
+        create_video: Whether to create a video of the simulation.
+    Returns:
+        simulation_data: A dictionary containing the simulation data for plotting.
     """
     # Arrays for storing data
     times = np.linspace(0, max_steps/10, max_steps)  # Assuming dt=0.1s
@@ -60,9 +74,6 @@ def simulate_agent(model: SAC, eval_env: SatDynEnv, max_steps: int):
     torques = []
     rewards = []
     frames = []
-
-    kp = 50
-    kd = 500
 
     obs, _ = eval_env.reset()
     done = False
@@ -84,11 +95,10 @@ def simulate_agent(model: SAC, eval_env: SatDynEnv, max_steps: int):
         # Store reward
         rewards.append(reward)
         
-        # Render the environment
-        #frame = eval_env.render()
-
-        # Store frame
-        #frames.append(frame)
+        # Render the environment and store the frame for video
+        if create_video:
+            frame = eval_env.render()
+            frames.append(frame)
 
         min_margin_koz = eval_env.min_margin_koz
         cnt_Koz_violations = eval_env.entered_koz_count
@@ -98,8 +108,9 @@ def simulate_agent(model: SAC, eval_env: SatDynEnv, max_steps: int):
     # Save as MP4
     output_path = "trajectory.mp4"
 
-    #imageio.mimsave(output_path, frames, fps=30)
-    #print(f"Saved video to {output_path}")
+    if create_video:
+        imageio.mimsave(output_path, frames, fps=30)
+        print(f"Saved video to {output_path}")
 
     # Extract the solution for attitude (in terms of quaternion) and angular velocity
     states_array = np.array(states)
@@ -133,7 +144,7 @@ def evaluate_agent_worker(model_name: str, initial_state: list, use_safety_filte
     """
     Worker function to evaluate agent for a subset of episodes.
     This function will be run in parallel by multiple processes.
-    Inputs:
+    Args:
         model_name: Name of the model file (without .zip extension).
         initial_state: Initial state configuration for environment.
         use_safety_filter: Safety filter mode.
@@ -237,16 +248,16 @@ def evaluate_agent_worker(model_name: str, initial_state: list, use_safety_filte
     }
 
 
-def evaluate_agent(model_name: str, initial_state: list, use_safety_filter: int, max_steps: int, episodes: int, num_workers: int = 8):
+def evaluate_agent(model_name: str, initial_state: list, use_safety_filter: int, max_steps: int, episodes: int, num_workers: int = 4):
     """
-    Simulate the agent in parallel using multiple processes.
-    Inputs:
+    Simulate the agent in parallel using multiple processes and saves the data at the end.
+    Args:
         model_name: Name of the model file (without .zip extension).
         initial_state: Initial state configuration for environment.
         use_safety_filter: Safety filter mode.
         max_steps: Maximum steps per episode.
         episodes: Total number of episodes to run.
-        num_workers: Number of parallel worker processes (default: 8).
+        num_workers: Number of parallel worker processes (default: 4).
     """
     import multiprocessing as mp
     
@@ -321,7 +332,9 @@ def evaluate_agent(model_name: str, initial_state: list, use_safety_filter: int,
 
 
 def print_result(phi_final, omega_final, cumulative_reward_final):
-
+    """
+    Print the final results of the evaluation in a readable format.
+    """
     print(f"Final rotation angle: {phi_final:.6f}°")
     print(f"Final angular velocity: {np.sqrt(omega_final[0]**2 + omega_final[1]**2 + omega_final[2]**2)*180/np.pi:.6f} deg/s")
     print(f"Total cumulative reward: {cumulative_reward_final:.2f}")
@@ -330,7 +343,15 @@ def print_result(phi_final, omega_final, cumulative_reward_final):
     print(f"Velocity settling: {"SUCCESS" if np.sqrt(omega_final[0]**2 + omega_final[1]**2 + omega_final[2]**2)*180/np.pi < 0.5 else "NOT SETTLED"}")
 
 def quat_to_axis_angle(q):
-        """Convert quaternion to rotation axis and angle"""
+        """
+        Convert quaternion to rotation axis and angle.
+        Args:
+            q: Quaternion as a list or array [q0, q1, q2, q3]
+        Returns:
+            res: A tuple containing:
+            axis: Rotation axis as a numpy array [x, y, z]
+            angle: Rotation angle in radians
+        """
         q0, q1, q2, q3 = q
         
         # Angle phi = 2 * arccos(|q0|) (same as in reward function)
@@ -346,7 +367,11 @@ def quat_to_axis_angle(q):
         return axis, angle
 
 def plot_actual_attitude(simulation_data: dict):
-    """Plot the ACTUAL satellite attitude trajectory based on rotation axis and angle phi"""
+    """
+    Plot the satellite attitude trajectory based on rotation axis and angle phi.
+    Args:
+        simulation_data: A dictionary containing the simulation data for plotting.
+    """
     
     # Switch to interactive backend for 3D plots
     matplotlib.use("TkAgg")
@@ -386,11 +411,7 @@ def plot_actual_attitude(simulation_data: dict):
     # Convert to degrees
     rotation_angles_deg = rotation_angles * 180 / np.pi
 
-    
-    #axis_x = rotation_axes[:, 0]
-    #axis_y = rotation_axes[:, 1] 
-    #axis_z = rotation_axes[:, 2]
-
+    # Calculate the body X-axis direction (boresight) at each time point using the quaternion rotation
     body_axis_arr = []
     for i in range(len(q_0)):
         q = [q_0[i], q_1[i], q_2[i], q_3[i]]
@@ -419,22 +440,28 @@ def plot_actual_attitude(simulation_data: dict):
 
     def _generate_keep_out_zone_circle():
         # Create circle points for the keep out zone
+
         theta = np.linspace(0, 2 * np.pi, 100)
         circle_points = []
+
         for angle in theta:
             # Generate points on the circle in the plane perpendicular to the normal vector
             v = np.array([np.cos(angle), np.sin(angle), 0])
+
             # Rotate v to be perpendicular to koz_normal
             if np.allclose(normal_vector_koz, [0, 0, 1]):
                 rot_axis = np.array([1, 0, 0])
             else:
                 rot_axis = np.cross([0, 0, 1], normal_vector_koz)
                 rot_axis /= np.linalg.norm(rot_axis)
+
             angle_to_rotate = np.arccos(np.dot(normal_vector_koz, [0, 0, 1]))
+
             # Rodrigues' rotation formula
             v_rotated = (v * np.cos(angle_to_rotate) +
                         np.cross(rot_axis, v) * np.sin(angle_to_rotate) +
                         rot_axis * np.dot(rot_axis, v) * (1 - np.cos(angle_to_rotate)))
+            
             # Scale to the radius of the keep out zone circle
             radius = np.sin(half_angle_koz)
             circle_point = normal_vector_koz * np.cos(half_angle_koz) + v_rotated * radius
@@ -532,13 +559,6 @@ def plot_actual_attitude(simulation_data: dict):
     print("Initial rotation angle:", rotation_angles_deg[0], "degrees")
 
     print_result(rotation_angles_deg[-1], simulation_data["omega"][-1], cumulative_rewards[-1])
-
-    # calculate norm for each vector in torque array
-    torque_norms = np.linalg.norm(torques_array, axis=1)
-    print("Torque avg: ", np.mean(torque_norms))
-    # print(f"first 10 torque array elements: {torques_array[:10]}")
-    # print(f"first 10 torque norms: {torque_norms[:10]}")
-    # print(f"sum of norms: {np.sum(torque_norms**2)}")
     
     return 
 
@@ -549,6 +569,11 @@ def load_evaluation_data(file_path: str):
     The part inside of the for loop can be modified to find specific episodes you are interested in.
     For example, episodes where the mean torque was above some threshold, episodes where the safety constraint was violated, etc.
     You could then print the index (i) of these episodes to the terminal.
+
+    Args:
+        file_path: Path to the .npz file containing the evaluation data.
+    Returns:
+        data: The loaded simulation data.
     """
     _data = np.load(file_path, allow_pickle=True)
     data = _data["data"].tolist()  # Convert back to list of dicts
@@ -655,15 +680,16 @@ def load_evaluation_data(file_path: str):
             reward_min_idx = i
             pass
     print()
-    # print(len(data))
-    # print("Settled episodes:", settled_count)
-    # print("Mean final error of settled episodes:", np.mean(settled_final_err))
-    # print("--------------------------------------------------")
-    #print(reward_min_idx, reward_min)
     return data
 
 def plot_for_report(simulation_data: dict, time_end=300):
-    """Plot the data and arrange it for report format."""
+    """
+    Plot the data and arrange it for report format.
+
+    Args:
+        simulation_data: A dictionary containing the simulation data for plotting.
+        time_end: The end time for the plots (default: 300 seconds).
+    """
     
     # Switch to interactive backend for 3D plots
     matplotlib.use("TkAgg")
@@ -671,10 +697,7 @@ def plot_for_report(simulation_data: dict, time_end=300):
     # Parse quaternion and angular velocity components
     q_0, q_1, q_2, q_3 = simulation_data["quaternion"][:, 0], simulation_data["quaternion"][:, 1], simulation_data["quaternion"][:, 2], simulation_data["quaternion"][:, 3]
     omega_x, omega_y, omega_z = simulation_data["omega"][:, 0], simulation_data["omega"][:, 1], simulation_data["omega"][:, 2]
-    norm_q = simulation_data["quaternion_norm"]
     torques_array = simulation_data["torques"]
-    rewards_array = simulation_data["rewards"]
-    cumulative_rewards = simulation_data["cumulative_rewards"]
     times = simulation_data["times"]
     normal_vector_koz = simulation_data["normal_vector_koz"]
     half_angle_koz = simulation_data["half_angle_koz"]
@@ -699,15 +722,8 @@ def plot_for_report(simulation_data: dict, time_end=300):
     # Convert to numpy arrays
     rotation_axes = np.array(rotation_axes)  # Shape: (N, 3)
     rotation_angles = np.array(rotation_angles)  # Shape: (N,)
-    
-    # Convert to degrees
-    rotation_angles_deg = rotation_angles * 180 / np.pi
 
-    
-    #axis_x = rotation_axes[:, 0]
-    #axis_y = rotation_axes[:, 1] 
-    #axis_z = rotation_axes[:, 2]
-
+    # Calculate the body X-axis direction (boresight) at each time point using the quaternion rotation
     body_axis_arr = []
     for i in range(len(q_0)):
         q = [q_0[i], q_1[i], q_2[i], q_3[i]]
@@ -736,27 +752,34 @@ def plot_for_report(simulation_data: dict, time_end=300):
     ax1.plot(body_axis_arr[:, 0], body_axis_arr[:, 1], body_axis_arr[:, 2], "b-", alpha=0.7, linewidth=3, label="Boresight axis trajectory")
     ax1.scatter(body_axis_arr[0, 0], body_axis_arr[0, 1], body_axis_arr[0, 2], color="green", s=50, label="Start")
     ax1.scatter(body_axis_arr[-1, 0], body_axis_arr[-1, 1], body_axis_arr[-1, 2], color="red", s=50, label="End")
+
     # Plot target last with higher zorder to ensure it's always on top
     ax1.scatter(1, 0, 0, color="gold", s=200, marker="*", label="Target", zorder=1000, edgecolors='black', linewidths=1)
 
     def _generate_keep_out_zone_circle():
         # Create circle points for the keep out zone
+
         theta = np.linspace(0, 2 * np.pi, 100)
         circle_points = []
+
         for angle in theta:
             # Generate points on the circle in the plane perpendicular to the normal vector
             v = np.array([np.cos(angle), np.sin(angle), 0])
+
             # Rotate v to be perpendicular to koz_normal
             if np.allclose(normal_vector_koz, [0, 0, 1]):
                 rot_axis = np.array([1, 0, 0])
             else:
                 rot_axis = np.cross([0, 0, 1], normal_vector_koz)
                 rot_axis /= np.linalg.norm(rot_axis)
+
             angle_to_rotate = np.arccos(np.dot(normal_vector_koz, [0, 0, 1]))
+
             # Rodrigues' rotation formula
             v_rotated = (v * np.cos(angle_to_rotate) +
                         np.cross(rot_axis, v) * np.sin(angle_to_rotate) +
                         rot_axis * np.dot(rot_axis, v) * (1 - np.cos(angle_to_rotate)))
+            
             # Scale to the radius of the keep out zone circle
             radius = np.sin(half_angle_koz)
             circle_point = normal_vector_koz * np.cos(half_angle_koz) + v_rotated * radius
@@ -840,7 +863,7 @@ def plot_for_report(simulation_data: dict, time_end=300):
     
     return
 
-def calc_std_deviation(data: list):
+def calc_metrics(data: list):
     """
     Calculate some metrics across the episodes.
     Inputs:
@@ -855,33 +878,12 @@ def calc_std_deviation(data: list):
     settled_final_err = []
     settling_time = []
     control_effort = []
-
-    alt_settled_count = 0
-    alt_settled_final_err = []
-    alt_settling_time = []
-    alt_control_effort = []
     
 
     for i, episode_data in enumerate(data):
         episode_rewards.append(episode_data["cumulative_rewards"][-1])
 
-        # considered settled, if the final attitude error is below 5 degree and the angular velocity (norm) is below 2 deg/s for the last 200 time steps
-        # check if velocity settled
-        omega_settled = True
-        for omega in episode_data["omega"][-200:]:
-            if np.linalg.norm(omega)*180/np.pi > 2.0:
-                omega_settled = False
-
-        # if attitude and velocity is settled, include pointing accuracy, settling time and control effort
-        if 2 * np.arccos(np.abs(episode_data["quaternion"][-1,0])) * 180/np.pi < 5.0 and omega_settled:
-            #print(i,end=",")
-            settled_count += 1
-            settled_final_err.append(2 * np.arccos(np.abs(episode_data["quaternion"][-1,0])) * 180/np.pi)
-            #settling_time.append(episode_data["time"][-1])
-            control_effort.append(np.sum(np.linalg.norm(episode_data["torques"], axis=1)**2))
-            pass
-
-        # alternative settling definition: settled if attitude error stays below target accuracy (0.25 deg) after some time (settling time).
+        # settling definition: settled if attitude error stays below target accuracy (0.25 deg) after some time (settling time).
         tmp_settling_time = 0
         tmp_settled = False
 
@@ -896,10 +898,10 @@ def calc_std_deviation(data: list):
 
         # If settled, include these metrics
         if tmp_settled:
-            alt_settled_count += 1
-            alt_settling_time.append(tmp_settling_time)
-            alt_settled_final_err.append(2 * np.arccos(np.abs(episode_data["quaternion"][-1,0])) * 180/np.pi)
-            alt_control_effort.append(np.sum(np.linalg.norm(episode_data["torques"], axis=1)**2))
+            settled_count += 1
+            settling_time.append(tmp_settling_time)
+            settled_final_err.append(2 * np.arccos(np.abs(episode_data["quaternion"][-1,0])) * 180/np.pi)
+            control_effort.append(np.sum(np.linalg.norm(episode_data["torques"], axis=1)**2))
 
         if episode_data["min_margin_koz"]*180/np.pi < 0.0:
             koz_margin_violated.append(episode_data["min_margin_koz"]*180/np.pi)
@@ -916,15 +918,10 @@ def calc_std_deviation(data: list):
     if len(koz_margin_not_violated) > 0:
         print(f"Mean KOZ margin not violated: {np.mean(koz_margin_not_violated)} +- {np.std(koz_margin_not_violated)} degrees")
     print()
-    print("Settled episodes:", settled_count)
+    print(f"Settled episodes: {settled_count}")
     print(f"Mean final error of settled episodes: {np.mean(settled_final_err)} +- {np.std(settled_final_err)} degrees")
-    #print(f"Mean settling time: {np.mean(settling_time)} +- {np.std(settling_time)} seconds")
+    print(f"Mean settling time: {np.mean(settling_time)} +- {np.std(settling_time)} seconds")
     print(f"Mean control effort: {np.mean(control_effort)} +- {np.std(control_effort)} N^2m^2*s")
-    print()
-    print(f"Alt settled episodes: {alt_settled_count}")
-    print(f"Alt Mean final error of settled episodes: {np.mean(alt_settled_final_err)} +- {np.std(alt_settled_final_err)} degrees")
-    print(f"Alt Mean settling time: {np.mean(alt_settling_time)} +- {np.std(alt_settling_time)} seconds")
-    print(f"Alt Mean control effort: {np.mean(alt_control_effort)} +- {np.std(alt_control_effort)} N^2m^2*s")
     print(f"Rewards: {np.mean(episode_rewards)} +- {np.std(episode_rewards)}")
     print("--------------------------------------------------")
     
