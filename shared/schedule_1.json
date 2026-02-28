@@ -1,0 +1,85 @@
+{
+    "name": "schedule 1",
+    "phases": [
+        {
+            "phase_name": "Phase 1: Easy",
+            "timesteps": 500000,
+            "min_initial_error_angle": 0.0,
+            "max_initial_error_angle": 30.0,
+            "min_initial_angular_velocity": 0.0,
+            "max_initial_angular_velocity": 0.1,
+            "min_half_cone_angle": 0.0,
+            "max_half_cone_angle": 0.0
+        },
+        {
+            "phase_name": "Phase 1: Medium",
+            "timesteps": 500000,
+            "min_initial_error_angle": 20.0,
+            "max_initial_error_angle": 60.0,
+            "min_initial_angular_velocity": 0.0,
+            "max_initial_angular_velocity": 0.1,
+            "min_half_cone_angle": 0.0,
+            "max_half_cone_angle": 0.0
+        },
+        {
+            "phase_name": "Phase 1: Hard",
+            "timesteps": 500000,
+            "min_initial_error_angle": 50.0,
+            "max_initial_error_angle": 120.0,
+            "min_initial_angular_velocity": 0.0,
+            "max_initial_angular_velocity": 0.1,
+            "min_half_cone_angle": 0.0,
+            "max_half_cone_angle": 0.0
+        },
+        {
+            "phase_name": "Phase 1: Extreme",
+            "timesteps": 500000,
+            "min_initial_error_angle": 110.0,
+            "max_initial_error_angle": 180.0,
+            "min_initial_angular_velocity": 0.0,
+            "max_initial_angular_velocity": 0.1,
+            "min_half_cone_angle": 0.0,
+            "max_half_cone_angle": 0.0
+        },
+        {
+            "phase_name": "Phase 2: Easy",
+            "timesteps": 2000000,
+            "min_initial_error_angle": 80.0,
+            "max_initial_error_angle": 90.0,
+            "min_initial_angular_velocity": 0.0,
+            "max_initial_angular_velocity": 0.1,
+            "min_half_cone_angle": 15.0,
+            "max_half_cone_angle": 30.0
+        },
+        {
+            "phase_name": "Phase 2: Medium",
+            "timesteps": 2000000,
+            "min_initial_error_angle": 80.0,
+            "max_initial_error_angle": 120.0,
+            "min_initial_angular_velocity": 0.0,
+            "max_initial_angular_velocity": 0.1,
+            "min_half_cone_angle": 15.0,
+            "max_half_cone_angle": 30.0
+        },
+        {
+            "phase_name": "Phase 2: Hard",
+            "timesteps": 2000000,
+            "min_initial_error_angle": 110.0,
+            "max_initial_error_angle": 140.0,
+            "min_initial_angular_velocity": 0.0,
+            "max_initial_angular_velocity": 0.1,
+            "min_half_cone_angle": 15.0,
+            "max_half_cone_angle": 30.0
+        },
+        {
+            "phase_name": "Phase 2: Extreme",
+            "timesteps": 8000000,
+            "min_initial_error_angle": 130.0,
+            "max_initial_error_angle": 180.0,
+            "min_initial_angular_velocity": 0.0,
+            "max_initial_angular_velocity": 0.1,
+            "min_half_cone_angle": 15.0,
+            "max_half_cone_angle": 30.0
+        }
+    ]
+}
