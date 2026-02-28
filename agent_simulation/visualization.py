@@ -5,65 +5,41 @@ Author: Cemal Yilmaz - 2026
 """
 
 import os
+import sys
 import matplotlib.pyplot as plt
 import matplotlib
-from stable_baselines3.common.evaluation import evaluate_policy
 from stable_baselines3 import SAC
 import numpy as np
 import imageio.v2 as imageio
 import time
 
-from environment import SatDynEnv, scale_torque, scale_angular_velocity_sat, scale_margin_koz
-from constants import dt
+# Add parent directory to path for imports (must be before local imports)
+_drl_repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _drl_repo_dir not in sys.path:
+    sys.path.insert(0, _drl_repo_dir)
+
+parent_dir = os.path.dirname(os.path.abspath(__file__))
+repo_dir = os.path.dirname(parent_dir)
+repo_parent_dir = os.path.dirname(repo_dir)
+video_dir = os.path.join(repo_parent_dir, "videos")
+
+# Create evaluation data directory if it doesn't exist
+if not os.path.exists(video_dir):
+    os.makedirs(video_dir)
+
+from agent_training.environment import SatDynEnv, scale_torque, scale_angular_velocity_sat, scale_margin_koz
+from agent_training.constants import dt
+from agent_simulation.evaluation import load_evaluation_data, create_evaluation_env, load_agent
 
 
-def load_agent(model_name: str):
-    """
-    Load the agent to visualize.
-    Args:
-        model_name: Name of the model file (without .zip extension).
-    Returns:
-        model: The loaded SAC model.
-    """
-    model_path = f"models/{model_name}.zip"
-    if not os.path.exists(model_path):
-        raise FileNotFoundError(f"Model file not found: {model_path}")
-    model = SAC.load(model_path)
-    return model
-
-
-def create_evaluation_env(initial_state, use_safety_filter):
-    """
-    Create the evaluation environment.
-    Args:
-        initial_state: Initial state configuration for environment.
-        use_safety_filter: Safety filter mode.
-    Returns:
-        eval_env: The created evaluation environment.
-    """
-    eval_env = SatDynEnv(render_mode="rgb_array", initial_state=initial_state, use_safety_filter=use_safety_filter)
-    return eval_env
-
-
-def print_rewards(model, eval_env, n_eval_episodes=10):
-    """
-    Evaluate and print the mean and std reward of the model.
-    Args:
-        model: The trained model.
-        eval_env: The evaluation environment.
-        n_eval_episodes: Number of episodes to evaluate.
-    """
-    mean_reward, std_reward = evaluate_policy(model, eval_env, n_eval_episodes=n_eval_episodes)
-    print(f"Mean reward: {mean_reward:.2f} +/- {std_reward:.2f}")
-
-
-def simulate_agent(model: SAC, eval_env: SatDynEnv, max_steps: int, create_video: bool = False):
+def simulate_agent(model: SAC, eval_env: SatDynEnv, max_steps: int, model_name: str, create_video: bool = False):
     """
     Simulate the agent in the evaluation environment.
     Args:
         model: The trained model.
         eval_env: The evaluation environment.
         max_steps: Maximum number of steps to simulate.
+        model_name: The name of the model being simulated.
         create_video: Whether to create a video of the simulation.
     Returns:
         simulation_data: A dictionary containing the simulation data for plotting.
@@ -84,15 +60,14 @@ def simulate_agent(model: SAC, eval_env: SatDynEnv, max_steps: int, create_video
 
     # Simulation loop
     while not done:
-        action, _states = model.predict(obs, deterministic=True)
+        action_agent, _states = model.predict(obs, deterministic=True)
 
         states.append(obs.copy())
-        torques.append(action.copy())
 
         # Step the environment
-        obs, reward, done, truncated, info = eval_env.step(action)
+        obs, reward, done, truncated, info = eval_env.step(action_agent) # action_filtered is the filter output if applied, else same as action_agent
 
-        # Store reward
+        torques.append(eval_env.action_filtered.copy())
         rewards.append(reward)
         
         # Render the environment and store the frame for video
@@ -106,7 +81,8 @@ def simulate_agent(model: SAC, eval_env: SatDynEnv, max_steps: int, create_video
     eval_env.close()
 
     # Save as MP4
-    output_path = "trajectory.mp4"
+    timestamp = time.time()
+    output_path = os.path.join(video_dir, f"{model_name}_{timestamp}.mp4")
 
     if create_video:
         imageio.mimsave(output_path, frames, fps=30)
@@ -140,196 +116,6 @@ def simulate_agent(model: SAC, eval_env: SatDynEnv, max_steps: int, create_video
     
     return simulation_data
 
-def evaluate_agent_worker(model_name: str, initial_state: list, use_safety_filter: int, max_steps: int, episodes: int, worker_id: int):
-    """
-    Worker function to evaluate agent for a subset of episodes.
-    This function will be run in parallel by multiple processes.
-    Args:
-        model_name: Name of the model file (without .zip extension).
-        initial_state: Initial state configuration for environment.
-        use_safety_filter: Safety filter mode.
-        max_steps: Maximum steps per episode.
-        episodes: Number of episodes to run.
-        worker_id: ID of this worker process.
-    Returns:
-        Dictionary containing evaluation results.
-    """
-    # Load model in worker process
-    model = load_agent(model_name)
-    
-    # Create environment in worker process
-    eval_env = create_evaluation_env(initial_state, use_safety_filter)
-    
-    koz_violation_episodes = 0
-    ep_rewards = []
-    err_angles_final = []
-    ang_vels_final = []
-    min_margins_koz = []
-    cnts_koz_violations = []
-    simulation_data = []
-
-    for episode in range(episodes):
-        print(f"Worker {worker_id}: Episode {episode+1}/{episodes}...", end="\r")
-        times = np.linspace(0, max_steps/10, max_steps)  # Assuming dt=0.1s
-        states = []
-        torques = []
-        rewards = []
-
-        obs, _ = eval_env.reset()
-        done = False
-        reward_cum = 0 # for this episode
-
-        # Simulation loop
-        while not done:
-            action_agent, _states = model.predict(obs, deterministic=True)
-
-            states.append(obs.copy())
-            #torques.append(action_agent.copy())
-
-            # Step the environment
-            obs, reward, done, truncated, info, action_filtered = eval_env.step(action_agent) # action_filtered is the filter output if applied, else same as action_agent
-            torques.append(action_filtered.copy())
-            rewards.append(reward)
-
-            # Add up reward
-            reward_cum += reward
-
-        if eval_env.entered_koz_count > 0:
-            koz_violation_episodes += 1
-
-        # Convert to numpy arrays
-        states_array = np.array(states)
-        torques_array = np.array(torques) * scale_torque
-        rewards_array = np.array(rewards)
-
-        # Store episode data in a dictionary
-        episode_data = {
-            "quaternion": states_array[:, :4],
-            "quaternion_norm": np.linalg.norm(states_array[:, :4], axis=1),
-            "torques": torques_array,
-            "omega": states_array[:, 4:7]*scale_angular_velocity_sat,
-            "rewards": rewards_array,
-            "cumulative_rewards": np.cumsum(rewards_array),
-            "times": times,
-            "normal_vector_koz": eval_env.normal_vector_koz,
-            "half_angle_koz": eval_env.half_angle_koz,
-            "margin_angles_koz": states_array[:, 20]*scale_margin_koz*180/np.pi,
-            "min_margin_koz": eval_env.min_margin_koz,
-            "cnt_Koz_violations": eval_env.entered_koz_count,
-            "filter_log": eval_env.filter_log
-        }
-
-        simulation_data.append(episode_data)
-        
-        # Add episode results to evaluation lists
-        min_margins_koz.append(eval_env.min_margin_koz*180/np.pi)  # in degrees
-        cnts_koz_violations.append(eval_env.entered_koz_count)
-        ep_rewards.append(reward_cum)
-
-        q0_final = obs[0]
-        err_angle_final = 2 * np.arccos(np.abs(q0_final)) * 180/np.pi  # final rotation angle in degrees
-        err_angles_final.append(err_angle_final)
-
-        ang_vel_final = obs[4:7] * scale_angular_velocity_sat * 180/np.pi  # final angular velocity in deg/s
-        ang_vel_final_mag = np.sqrt(ang_vel_final[0]**2 + ang_vel_final[1]**2 + ang_vel_final[2]**2) # magnitude
-        ang_vels_final.append(ang_vel_final_mag)
-
-    eval_env.close()
-    
-    # Return results from this worker
-    return {
-        "koz_violation_episodes": koz_violation_episodes,
-        "ep_rewards": ep_rewards,
-        "err_angles_final": err_angles_final,
-        "ang_vels_final": ang_vels_final,
-        "min_margins_koz": min_margins_koz,
-        "cnts_koz_violations": cnts_koz_violations,
-        "simulation_data": simulation_data
-    }
-
-
-def evaluate_agent(model_name: str, initial_state: list, use_safety_filter: int, max_steps: int, episodes: int, num_workers: int = 4):
-    """
-    Simulate the agent in parallel using multiple processes and saves the data at the end.
-    Args:
-        model_name: Name of the model file (without .zip extension).
-        initial_state: Initial state configuration for environment.
-        use_safety_filter: Safety filter mode.
-        max_steps: Maximum steps per episode.
-        episodes: Total number of episodes to run.
-        num_workers: Number of parallel worker processes (default: 4).
-    """
-    import multiprocessing as mp
-    
-    timestamp = time.time()
-    
-    # Divide episodes among workers
-    episodes_per_worker = episodes // num_workers
-    remaining_episodes = episodes % num_workers
-    
-    # Create list of episode counts for each worker
-    episode_counts = [episodes_per_worker] * num_workers
-    for i in range(remaining_episodes):
-        episode_counts[i] += 1
-    
-    print(f"Running {episodes} episodes across {num_workers} workers...")
-    print(f"Episodes per worker: {episode_counts}")
-    print()
-    
-    # Create pool of workers
-    with mp.Pool(processes=num_workers) as pool:
-        # Start all workers in parallel
-        results = []
-        for worker_id in range(num_workers):
-            result = pool.apply_async(
-                evaluate_agent_worker,
-                args=(model_name, initial_state, use_safety_filter, max_steps, episode_counts[worker_id], worker_id)
-            )
-            results.append(result)
-        
-        # Wait for all workers to complete and collect results
-        worker_results = [r.get() for r in results]
-    
-    # Combine results from all workers
-    koz_violation_episodes = sum(r["koz_violation_episodes"] for r in worker_results)
-    ep_rewards = []
-    err_angles_final = []
-    ang_vels_final = []
-    min_margins_koz = []
-    cnts_koz_violations = []
-    simulation_data = []
-    
-    for r in worker_results:
-        ep_rewards.extend(r["ep_rewards"])
-        err_angles_final.extend(r["err_angles_final"])
-        ang_vels_final.extend(r["ang_vels_final"])
-        min_margins_koz.extend(r["min_margins_koz"])
-        cnts_koz_violations.extend(r["cnts_koz_violations"])
-        simulation_data.extend(r["simulation_data"])
-
-    # Convert to numpy arrays
-    err_angles_final_array = np.array(err_angles_final)
-    ang_vels_final_array = np.array(ang_vels_final)
-    min_margins_koz_array = np.array(min_margins_koz)
-    cnts_koz_violations_array = np.array(cnts_koz_violations)
-
-    # Save episode data (per timestep)
-    np.savez(f"evaluation_{timestamp}.npz", data=np.array(simulation_data), dtype=object)
-
-    # Print results
-    print()
-    print(f"Violation rate: {koz_violation_episodes/episodes*100}%")
-    print(f"Agent was within KOZ for these amount of steps per episode:")
-    print(f"--- Mean: {np.mean(cnts_koz_violations_array):.2f}, Std: {np.std(cnts_koz_violations_array):.2f}, Min: {np.min(cnts_koz_violations_array)}, Max: {np.max(cnts_koz_violations_array)}")
-    print(f"Minimum margin to KOZ (degrees):")
-    print(f"--- Mean: {np.mean(min_margins_koz_array):.2f}, Std: {np.std(min_margins_koz_array):.2f}, Min: {np.min(min_margins_koz_array):.2f}, Max: {np.max(min_margins_koz_array):.2f}")
-    print(f"Final rotation angle (degrees):")
-    print(f"--- Mean: {np.mean(err_angles_final_array):.2f}, Std: {np.std(err_angles_final_array):.2f}, Min: {np.min(err_angles_final_array):.2f}, Max: {np.max(err_angles_final_array):.2f}")
-    print(f"Final angular velocity (deg/s):")
-    print(f"--- Mean: {np.mean(ang_vels_final_array):.4f}, Std: {np.std(ang_vels_final_array):.4f}, Min: {np.min(ang_vels_final_array):.4f}, Max: {np.max(ang_vels_final_array):.4f}")
-    print(f"Rewards:")
-    print(f"--- Mean: {np.mean(ep_rewards):.2f}, Std: {np.std(ep_rewards):.2f}, Min: {np.min(ep_rewards):.2f}, Max: {np.max(ep_rewards):.2f}")
-
 
 def print_result(phi_final, omega_final, cumulative_reward_final):
     """
@@ -338,9 +124,10 @@ def print_result(phi_final, omega_final, cumulative_reward_final):
     print(f"Final rotation angle: {phi_final:.6f}°")
     print(f"Final angular velocity: {np.sqrt(omega_final[0]**2 + omega_final[1]**2 + omega_final[2]**2)*180/np.pi:.6f} deg/s")
     print(f"Total cumulative reward: {cumulative_reward_final:.2f}")
-    print(f"Target accuracy: 2.0°")
-    print(f"Attitude control: {"SUCCESS" if phi_final < 2.0 else "NOT CONVERGED"}")
+    print(f"Target accuracy: 0.25°")
+    print(f"Attitude control: {"SUCCESS" if phi_final < 0.25 else "NOT CONVERGED"}")
     print(f"Velocity settling: {"SUCCESS" if np.sqrt(omega_final[0]**2 + omega_final[1]**2 + omega_final[2]**2)*180/np.pi < 0.5 else "NOT SETTLED"}")
+
 
 def quat_to_axis_angle(q):
         """
@@ -365,6 +152,7 @@ def quat_to_axis_angle(q):
             axis = np.array([0, 0, 0])  # No rotation axis if angle is zero
             
         return axis, angle
+
 
 def plot_actual_attitude(simulation_data: dict):
     """
@@ -563,125 +351,6 @@ def plot_actual_attitude(simulation_data: dict):
     return 
 
 
-def load_evaluation_data(file_path: str):
-    """
-    Load the simulation data.
-    The part inside of the for loop can be modified to find specific episodes you are interested in.
-    For example, episodes where the mean torque was above some threshold, episodes where the safety constraint was violated, etc.
-    You could then print the index (i) of these episodes to the terminal.
-
-    Args:
-        file_path: Path to the .npz file containing the evaluation data.
-    Returns:
-        data: The loaded simulation data.
-    """
-    _data = np.load(file_path, allow_pickle=True)
-    data = _data["data"].tolist()  # Convert back to list of dicts
-
-    reward_min = None
-    reward_min_idx = None
-    settled_count = 0
-    settled_final_err = []
-
-    for i, episode_data in enumerate(data):
-        if np.mean(np.linalg.norm(episode_data["torques"], axis=1)) > 0.0004 and episode_data["cnt_Koz_violations"] > 0:
-            #print(i,end=",")
-            pass
-
-        if 2 * np.arccos(np.abs(episode_data["quaternion"][-1,0])) * 180/np.pi < 1.0 and episode_data["cnt_Koz_violations"] > 0:
-            #print(i,end=",")
-            pass
-        
-        # Off-border: no violation, target reached, large KOZ
-        if (2 * np.arccos(np.abs(episode_data["quaternion"][-1,0])) * 180/np.pi < 0.5 and episode_data["min_margin_koz"]*180/np.pi > 10.0 
-            and 2 * np.arccos(np.abs(episode_data["quaternion"][0,0])) * 180/np.pi < 100.0 and episode_data["cnt_Koz_violations"] == 0 and episode_data["half_angle_koz"]*180/np.pi > 25.0):
-            #print(i,end=",")
-            pass
-
-        # Along-border: no violation, target reached, large KOZ
-        if (2 * np.arccos(np.abs(episode_data["quaternion"][-1,0])) * 180/np.pi < 0.5 and episode_data["min_margin_koz"]*180/np.pi < 0.5 
-            and 2 * np.arccos(np.abs(episode_data["quaternion"][0,0])) * 180/np.pi < 100.0 and episode_data["cnt_Koz_violations"] == 0 and episode_data["half_angle_koz"]*180/np.pi > 25.0):
-            #print(i,end=",")
-            pass
-        
-        # Stuck: Low episode reward, low control effort, far away from target
-        if (episode_data["cumulative_rewards"][-1] < -100 and np.sum(np.linalg.norm(episode_data["torques"], axis=1)**2) < 0.0005
-            and 2 * np.arccos(np.abs(episode_data["quaternion"][-1,0])) * 180/np.pi > 30.0):
-            #print(i,end=",")
-            pass
-
-        # Oscillation: Low episode reward, high control effort, close to target
-        if (episode_data["cumulative_rewards"][-1] < -100 and np.sum(np.linalg.norm(episode_data["torques"], axis=1)**2) > 0.0008
-            and 2 * np.arccos(np.abs(episode_data["quaternion"][-1,0])) * 180/np.pi < 10.0):
-            #print(i,end=",")
-            pass
-
-        if 2 * np.arccos(np.abs(episode_data["quaternion"][-1,0])) * 180/np.pi > 30.0:
-            #print(i,end=",")
-            pass
-        
-        # Violation
-        if episode_data["cnt_Koz_violations"] > 0:
-            print(i,end=",")
-            pass
-
-        if episode_data["cumulative_rewards"][-1] < -2800:
-            #print(f"{i}:\n{episode_data["filter_log"]}")
-            pass
-
-        if i == 0 and "filter_log" not in episode_data:
-            print(f"{i} does not have filter log")
-
-        if "filter_log" in episode_data and episode_data["filter_log"] != "":
-            #print(f"{i}:\n{episode_data["filter_log"]}")
-            pass
-
-        if 2 * np.arccos(np.abs(episode_data["quaternion"][0,0])) * 180/np.pi < 120 and episode_data["cumulative_rewards"][-1] > 120:
-            #print(i,end=",")
-            pass
-
-        if np.linalg.norm(episode_data["omega"][-1]) * 180 / np.pi > 2.0:
-            #print(i,end=",")
-            pass
-
-        if np.mean(np.linalg.norm(episode_data["omega"], axis=1)) * 180 / np.pi > 2.0:
-            #print(i,end=",")
-            pass
-
-        if np.max(np.linalg.norm(episode_data["omega"], axis=1)) * 180 / np.pi > 11.0:
-            #print(i,end=",")
-            pass
-
-        if i == 238:
-            #print(f"{i}:\n{episode_data['filter_log']}")
-            pass
-        
-        # if the last attitude error is above 5 degree and the last 50 omega norms are below 0.1 deg/s each
-        omega_settled = True
-        for omega in episode_data["omega"][-200:]:
-            if np.linalg.norm(omega)*180/np.pi > 2.0:
-                omega_settled = False
-        if 2 * np.arccos(np.abs(episode_data["quaternion"][-1,0])) * 180/np.pi < 5.0 and omega_settled:
-            #print(i,end=",")
-            settled_count += 1
-            settled_final_err.append(2 * np.arccos(np.abs(episode_data["quaternion"][-1,0])) * 180/np.pi)
-            pass
-
-        if not omega_settled:
-            #print(i,end=",")
-            pass
-        
-        if reward_min is None:
-            reward_min = episode_data["cumulative_rewards"][-1]
-            reward_min_idx = i
-        if episode_data["cumulative_rewards"][-1] < reward_min:
-            #print(i,end=",")
-            reward_min = episode_data["cumulative_rewards"][-1]
-            reward_min_idx = i
-            pass
-    print()
-    return data
-
 def plot_for_report(simulation_data: dict, time_end=300):
     """
     Plot the data and arrange it for report format.
@@ -862,68 +531,6 @@ def plot_for_report(simulation_data: dict, time_end=300):
     plt.show()
     
     return
-
-def calc_metrics(data: list):
-    """
-    Calculate some metrics across the episodes.
-    Inputs:
-        data: List of episode data dictionaries.
-    """
-  
-    episode_rewards = []
-    koz_margin_violated = []
-    koz_margin_not_violated = []
-
-    settled_count = 0
-    settled_final_err = []
-    settling_time = []
-    control_effort = []
-    
-
-    for i, episode_data in enumerate(data):
-        episode_rewards.append(episode_data["cumulative_rewards"][-1])
-
-        # settling definition: settled if attitude error stays below target accuracy (0.25 deg) after some time (settling time).
-        tmp_settling_time = 0
-        tmp_settled = False
-
-        for idx, quat in enumerate(episode_data["quaternion"]):
-            err_angle = 2 * np.arccos(np.abs(quat[0])) * 180/np.pi
-            if err_angle <= 0.25:
-                if not tmp_settled:
-                    tmp_settling_time = idx * dt
-                tmp_settled = True
-            else:
-                tmp_settled = False
-
-        # If settled, include these metrics
-        if tmp_settled:
-            settled_count += 1
-            settling_time.append(tmp_settling_time)
-            settled_final_err.append(2 * np.arccos(np.abs(episode_data["quaternion"][-1,0])) * 180/np.pi)
-            control_effort.append(np.sum(np.linalg.norm(episode_data["torques"], axis=1)**2))
-
-        if episode_data["min_margin_koz"]*180/np.pi < 0.0:
-            koz_margin_violated.append(episode_data["min_margin_koz"]*180/np.pi)
-        else:
-            koz_margin_not_violated.append(episode_data["min_margin_koz"]*180/np.pi)
-       
-    print()
-    print("Episodes: ", len(data))
-    print()
-    print(f"KOZ margin violated: {len(koz_margin_violated)} episodes")
-    print(f"KOZ margin not violated: {len(koz_margin_not_violated)} episodes")
-    if len(koz_margin_violated) > 0:
-        print(f"Mean KOZ margin violated: {np.mean(koz_margin_violated)} +- {np.std(koz_margin_violated)} degrees")
-    if len(koz_margin_not_violated) > 0:
-        print(f"Mean KOZ margin not violated: {np.mean(koz_margin_not_violated)} +- {np.std(koz_margin_not_violated)} degrees")
-    print()
-    print(f"Settled episodes: {settled_count}")
-    print(f"Mean final error of settled episodes: {np.mean(settled_final_err)} +- {np.std(settled_final_err)} degrees")
-    print(f"Mean settling time: {np.mean(settling_time)} +- {np.std(settling_time)} seconds")
-    print(f"Mean control effort: {np.mean(control_effort)} +- {np.std(control_effort)} N^2m^2*s")
-    print(f"Rewards: {np.mean(episode_rewards)} +- {np.std(episode_rewards)}")
-    print("--------------------------------------------------")
     
 
 ### MAIN ###
@@ -934,38 +541,19 @@ if __name__ == "__main__":
 
     # Set initial state for evaluation environment
     INITIAL_STATE = [80.0, 180.0, 0.00, 0.01, MAX_STEPS, 15.0, 30.0]  # [min_initial_angle, max_initial_angle, min_initial_angular_velocity, max_initial_angular_velocity]
-
+    CREATE_VIDEO = False  # Set to True to create a video of the simulation (will be saved in the "videos" directory)
     USE_SAFETY_FILTER = 2  # 0: no filter, 1: filter applied, 2: train with filter
 
     eval_env = create_evaluation_env(INITIAL_STATE, USE_SAFETY_FILTER)
 
-    """ Uncomment simulate_agent() and plot_actual_attitude() below to run 1 simulation and plot the results. """
-    #print_rewards(model, eval_env, n_eval_episodes=1)
-    #simulation_data = simulate_agent(model, eval_env, MAX_STEPS)
+    """ Uncomment the lines below to run 1 simulation and plot the results. """
+    #simulation_data = simulate_agent(model, eval_env, MAX_STEPS, MODEL_NAME, create_video=CREATE_VIDEO)
     #plot_actual_attitude(simulation_data)
     #plot_for_report(simulation_data, time_end=300)
 
     """ Uncomment the lines below if you have saved evaluation data (from evaluate_agent()) to load all the episodes.
         loaded contains ALL episodes, therefore in loaded[] should be the index of the episode you want to plot.
     """
-    #loaded = load_evaluation_data("evaluation_phase1_best1_backup_noFilter_initRange_10k.npz")
-    #loaded = load_evaluation_data("evaluation_phase1_best1_backup_filter_initRange_10k_fixed.npz")
-
-    #loaded = load_evaluation_data("evaluation_phase1_best1_3_9.6M_noFilter_initRange_10k.npz")
-    #loaded = load_evaluation_data("evaluation_phase1_best1_3_9.6M_filter_initRange_10k_fixed_noViolation.npz")
-
-    #loaded = load_evaluation_data("evaluation_phase1_best1_ph2_sfty2_noFilter_initRange_10k.npz")
-    loaded = load_evaluation_data("evaluation_phase1_best1_ph2_sfty2_filter_initRange_10k_fixed_11M.npz")
-    
-    #calc_std_deviation(loaded)
-    #plot_actual_attitude(loaded[2654])
-    plot_for_report(loaded[4149],time_end=300)
-
-    """ Uncomment evaluate_agent() below to simulate the agent over multiple episodes and save the data at the end. """
-    t_start = time.time()
-    # Run evaluation with k parallel workers and n episodes
-    #evaluate_agent(MODEL_NAME, INITIAL_STATE, USE_SAFETY_FILTER, MAX_STEPS, episodes=10000, num_workers=4)
-    t_end = time.time()
-    print()
-    print(f"Evaluation time: {t_end - t_start:.2f} seconds")
-
+    #loaded = load_evaluation_data("evaluation_test2.npz")
+    #plot_actual_attitude(loaded[2])
+    #plot_for_report(loaded[0],time_end=300)

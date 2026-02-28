@@ -7,8 +7,14 @@ Author: Cemal Yilmaz - 2026
 import json
 import os
 import time
+import sys
 
-import trainer
+# Add parent directory to path for imports (must be before local imports)
+_drl_repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _drl_repo_dir not in sys.path:
+    sys.path.insert(0, _drl_repo_dir)
+
+from agent_training import trainer
 
 parent_dir = os.path.dirname(os.path.abspath(__file__))
 repo_dir = os.path.dirname(parent_dir)
@@ -25,6 +31,10 @@ COLOR_END = trainer.COLOR_END
 # Create schedules directory if it doesn't exist
 if not os.path.exists(schedule_dir):
     os.makedirs(schedule_dir)
+
+# Create metadata directory if it doesn't exist
+if not os.path.exists(meta_dir):
+    os.makedirs(meta_dir)
 
 
 def load_schedule(schedule_file_name):
@@ -199,7 +209,7 @@ def do_scheduled_training(model_name, schedule, continue_training, use_safety_fi
         model, save_path, latest_model_path = create_or_load_model(continue_training, model_name, env)
 
         # Train the agent model for the specified timesteps
-        model = trainer.train_agent(model, save_path, timesteps_left, 500, 100_000, model_name)
+        model = trainer.train_agent(model, timesteps_left, 500, 100_000, model_name)
         print("|")
         print(f"|---{GREEN_START}Phase {phase_name} completed.{COLOR_END}")
 
@@ -215,9 +225,9 @@ def do_scheduled_training(model_name, schedule, continue_training, use_safety_fi
 if __name__ == "__main__":
     # Define which schedule to use
     SCHEDULE_FILE_NAME = "phase2_1.json"
-    CONTINUE_TRAINING = True
-    USE_SAFETY_FILTER = 1  # 0: no filter, 1: filter applied, 2: train with filter
-    MODEL_NAME = "phase1_best1_3cont2"
+    CONTINUE_TRAINING = False
+    USE_SAFETY_FILTER = 0  # 0: no filter, 1: filter applied, 2: train with filter
+    MODEL_NAME = "test_noFilter"
 
     # Load the selected schedule
     schedule = load_schedule(SCHEDULE_FILE_NAME)

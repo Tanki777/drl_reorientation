@@ -5,9 +5,15 @@ Author: Cemal Yilmaz - 2026
 """
 
 import os
+import sys
 import time
 
-from trainer import repo_dir, log_path, RED_START, GREEN_START, YELLOW_START, COLOR_END
+# Add parent directory to path for imports (must be before local imports)
+_drl_repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _drl_repo_dir not in sys.path:
+    sys.path.insert(0, _drl_repo_dir)
+
+from agent_training.trainer import repo_dir, log_path, RED_START, GREEN_START, YELLOW_START, COLOR_END
 import subprocess
 
 def start_tensorboard():

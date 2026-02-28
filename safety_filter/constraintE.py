@@ -44,7 +44,7 @@ def constraintE(state, constants, index, outdata):
 
     # Warning
     if outdata['h'][index] > 0:
-        print('Excessive kinetic energy')
+        #print('Excessive kinetic energy')
         pass
     
     # Extract wheel-to-torque mapping (rows 0-2, cols 3-6)

@@ -5,14 +5,21 @@ Author: Cemal Yilmaz - 2026
 """
 
 import os
+import sys
 import time
 import datetime
+
+# Add parent directory to path for imports (must be before local imports)
+_drl_repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _drl_repo_dir not in sys.path:
+    sys.path.insert(0, _drl_repo_dir)
+
 from stable_baselines3 import SAC
 from stable_baselines3.common.vec_env import VecMonitor
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.logger import HParam
-import environment as sat_env
+from agent_training import environment as sat_env
 import subprocess
 
 # Terminal colors

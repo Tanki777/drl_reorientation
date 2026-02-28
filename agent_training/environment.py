@@ -18,13 +18,12 @@ import os
 
 from numba import njit
 
-from constants import get_constants
+# Add parent directory to path for imports (must be before local imports)
+_drl_repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _drl_repo_dir not in sys.path:
+    sys.path.insert(0, _drl_repo_dir)
 
-# Add parent directory to path for imports
-parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if parent_dir not in sys.path:
-    sys.path.insert(0, parent_dir)
-
+from agent_training.constants import get_constants
 from safety_filter.SafetyFilter import safety_filter
 
 constants = get_constants()
@@ -138,8 +137,8 @@ def calc_margin_koz(q, normal_vector_koz, half_angle_koz):
     x_axis = np.array([1.0, 0.0, 0.0], dtype=np.float32)
     body_axis_arr = rotate_vector_by_quaternion(x_axis, q)
 
-    norm_body = normalize_vector(body_axis_arr)
-    norm_koz = normalize_vector(normal_vector_koz)
+    norm_body = np.sqrt(body_axis_arr[0]**2 + body_axis_arr[1]**2 + body_axis_arr[2]**2)
+    norm_koz = np.sqrt(normal_vector_koz[0]**2 + normal_vector_koz[1]**2 + normal_vector_koz[2]**2)
     
     # Calculate the angle between the satellite's body axis and the normal vector of the keep out zone using the dot product
     cos_theta = (body_axis_arr[0] * normal_vector_koz[0] + 
@@ -331,7 +330,7 @@ class SatDynEnv(gym.Env):
         self.settling_velocity_threshold = 0.01  # rad/s for angular velocity
         self.min_margin_koz = 0.0
         self.entered_koz_count = 0
-        
+        self.action_filtered = np.zeros(3, dtype=np.float32)  # for logging the action after safety filter
 
         # Define time step, step duration, and maximum steps
         self.dt = constants['dt']
@@ -476,6 +475,7 @@ class SatDynEnv(gym.Env):
         self.settling_time = -1
         self.min_margin_koz = 10.0
         self.entered_koz_count = 0
+        self.action_filtered = np.zeros(3, dtype=np.float32)
 
         # Update min margin koz angle
         if margin_koz < self.min_margin_koz:
@@ -516,7 +516,7 @@ class SatDynEnv(gym.Env):
         if self.USE_SAFETY_FILTER > 0:
             # Apply safety filter for agent's action
             agent_action = action
-            safe_action, step_filter_log = safety_filter(action*scale_torque, 0, self.state, self.normal_vector_koz, self.half_angle_koz, self.episode_count, self.steps)
+            safe_action, step_filter_log = safety_filter(action*scale_torque, self.state, self.normal_vector_koz, self.half_angle_koz, self.episode_count, self.steps)
             safe_action = safe_action / scale_torque
             self.filter_log += step_filter_log
             action = safe_action
@@ -563,12 +563,13 @@ class SatDynEnv(gym.Env):
             self.entered_koz_count += 1
 
         # Calculate reward
-        reward = reward_function(self.state, scale_torque_norm, self.episode_count, self.USE_CURR_KOZ_WEIGHT, agent_action, safe_action, self.USE_SAFETY_FILTER)
+        reward = reward_function(self.state, agent_action, safe_action, self.USE_SAFETY_FILTER)
         
         # Track custom metrics
         
         self.episode_torques.append(np.linalg.norm(applied_torque))
         self.episode_torques_prev.append(np.linalg.norm(torque_prev))
+        self.action_filtered = action  # store the action after safety filter for logging
 
         # Normalize observation
         obs = self.state.copy()
@@ -620,7 +621,7 @@ class SatDynEnv(gym.Env):
                 "custom_metrics/entered_koz_count": float(self.entered_koz_count)
             })
 
-        return obs, reward, done, truncated, info, action
+        return obs, reward, done, truncated, info
 
     def render(self):
         """

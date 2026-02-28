@@ -1,5 +1,6 @@
 """
 Simulate the satellite dynamics in the environment and plot the actual attitude trajectory based on the rotation axis and angle phi.
+Only simulates the environment with a predefined action schedule, not a trained agent.
 
 Author: Cemal Yilmaz - 2026
 """
@@ -8,7 +9,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib
 
-from environment import SatDynEnv, scale_torque, scale_angular_velocity_sat, scale_angular_velocity_wheels
+from agent_training.environment import SatDynEnv, scale_torque, scale_angular_velocity_sat, scale_angular_velocity_wheels
 
 def create_simulation_env(initial_state):
     """

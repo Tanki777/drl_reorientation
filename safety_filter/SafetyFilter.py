@@ -9,6 +9,7 @@ Modified by: Cemal Yilmaz - 2026
 import numpy as np
 from scipy.optimize import minimize
 import time
+
 from safety_filter.constraintQ import constraintQ
 from safety_filter.constraintE import constraintE
 from agent_training.constants import get_constants
