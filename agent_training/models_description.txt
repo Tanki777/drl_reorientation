@@ -1,0 +1,18 @@
+sac_sat_faster_1: values from yang example, sped up training process, no initial velocity, small initial deviation angle
+sac_sat_faster_2: values from yang paper, sped up training process, no initial velocity, small initial deviation angle
+
+test_new_env_6: wheels_limit=0.07
+test_new_env_6_nan_2: wheels_limit=0.0007, reward torque frequency normalized, dynamic episode lengths
+test_new_env_6_nan_3: wheels_limit=0.0007, reward torque frequency normalized, dynamic episode lengths, min init angle 1.0°
+test_new_env_7_basic: reward factor 24 instead of 2400, ...
+test_new_env_7_corr: reward factor 2400, ...
+test_new_env_7_corr_l3: learning rate 3e-4
+
+...
+
+
+rew2: decreased 0.25° bonus from 9 to 1
+rew3: decreased 0.25° bonus from 9 to 1, removed penalty for moving direction
+rew4: decreased 0.25° bonus from 9 to 1, removed penalty for moving direction for err < 5°
+rew5: decreased 0.25° bonus from 9 to 1, removed penalty for moving direction for err < 5°, decreased torque penalty coefficients from 0.05 to 0.005 and 0.005 to 0.0005.
+rewPap1: reward function from paper 2507.08366v1
