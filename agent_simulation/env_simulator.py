@@ -294,7 +294,7 @@ if __name__ == "__main__":
     # Set the torques in action_schedule()
 
     # [min_initial_angle, max_initial_angle, min_initial_angular_velocity, max_initial_angular_velocity, max_steps, min_half_angle_koz, max_half_angle_koz]
-    initial_state = [90.0, 90.0, 0.0, 0.0, 2000, 20.0, 20.0] 
-    env = create_simulation_env(initial_state)
+    INITIAL_STATE = [90.0, 90.0, 0.0, 0.0, 2000, 20.0, 20.0] 
+    env = create_simulation_env(INITIAL_STATE)
     simulation_data = start_simulation(env)
     plot_actual_attitude(simulation_data)
