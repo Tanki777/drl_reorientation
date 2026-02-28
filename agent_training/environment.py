@@ -203,7 +203,7 @@ def sat_ode(state, torque, inertia_total, inertia_wheels, wheels_position_matrix
 
 
 @njit
-def reward_function(state, agent_action, safe_action, use_safety_filter):
+def reward_function(state, agent_action, safe_action, use_safety_filter, phase):
     """
     Calculate the reward for the current state and action.
     Args:
@@ -245,12 +245,13 @@ def reward_function(state, agent_action, safe_action, use_safety_filter):
 
     # Penalty for entering / being close to keep out zone
     r5 = 0.0
-    if margin_koz <= 0.0:
-        r5 = -1.0
-    else:
-        r5 = -1.0*math.exp(-66.0*margin_koz)
+    if phase == 2:
+        if margin_koz <= 0.0:
+            r5 = -1.0
+        else:
+            r5 = -1.0*math.exp(-66.0*margin_koz)
 
-    # Penalty for using a different action than the safety filter suggests
+    # Penalty for using a different action than the safety filter suggests.
     r6 = 0.0
     if use_safety_filter == 2:
         r6 = - (abs(safe_action[0]-agent_action[0]) + abs(safe_action[1]-agent_action[1]) + abs(safe_action[2]-agent_action[2]))
@@ -318,6 +319,11 @@ class SatDynEnv(gym.Env):
             self.max_steps = initial_state[4]
             self.min_half_angle_koz = initial_state[5]
             self.max_half_angle_koz = initial_state[6]
+
+        if self.max_half_angle_koz > 0.0:
+            self.PHASE = 2
+        else:
+            self.PHASE = 1
         
         # Custom metrics tracking for TensorBoard
         self.initial_error_angle = 0.0
@@ -508,7 +514,6 @@ class SatDynEnv(gym.Env):
             done: A boolean indicating whether the episode has ended.
             truncated: A boolean indicating whether the episode was truncated (not used in this environment).
             info: A dictionary containing additional information and custom metrics.
-            action: The action that was actually applied after safety filtering (for logging purposes).
         """
         agent_action = np.zeros(3, dtype=np.float32)
         safe_action = np.zeros(3, dtype=np.float32)
@@ -563,7 +568,7 @@ class SatDynEnv(gym.Env):
             self.entered_koz_count += 1
 
         # Calculate reward
-        reward = reward_function(self.state, agent_action, safe_action, self.USE_SAFETY_FILTER)
+        reward = reward_function(self.state, agent_action, safe_action, self.USE_SAFETY_FILTER, self.PHASE)
         
         # Track custom metrics
         
