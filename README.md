@@ -49,6 +49,7 @@ After using the auto trainer, evaluation and visualization tools for the first t
     - Set ``MODEL_NAME`` to the name of the model to be trained. Omit the file ending (i.e. .zip). Note that the suffix ``_latest`` is automatically used when loading the model, so do not include it in ``MODEL_NAME``.
 - Schedule:
     - A schedule is a JSON file and defines different training phases. Each phase can have its own amount of training timesteps and initial state.
+    - If training for the first time, create a ``schedules`` folder if it does not exist and put your schedule file in there. For the location of the folder, see Section ``Project Structure``.
     - Example:
     ````json
     {
