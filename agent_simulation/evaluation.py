@@ -39,7 +39,7 @@ def load_agent(model_name: str):
     model_path = f"models/{model_name}.zip"
     if not os.path.exists(model_path):
         raise FileNotFoundError(f"Model file not found: {model_path}")
-    model = SAC.load(model_path)
+    model = SAC.load(model_path, device="cuda")
     return model
 
 
@@ -433,11 +433,11 @@ def load_evaluation_data(file_name: str):
 
 ### MAIN ###
 if __name__ == "__main__":
-    MODEL_NAME = "phase1_best1_backup"
+    MODEL_NAME = "test_noFilterCPU_latest"
     MAX_STEPS = 3000
 
     # Set initial state for evaluation environment
-    INITIAL_STATE = [80.0, 180.0, 0.00, 0.01, MAX_STEPS, 15.0, 30.0]  # [min_initial_angle, max_initial_angle, min_initial_angular_velocity, max_initial_angular_velocity]
+    INITIAL_STATE = [0.0, 90.0, 0.00, 0.01, MAX_STEPS, 0.0, 0.0]  # [min_initial_angle, max_initial_angle, min_initial_angular_velocity, max_initial_angular_velocity]
     USE_SAFETY_FILTER = 1  # 0: no filter, 1: filter applied, 2: train with filter
 
     """ Uncomment the lines below to load saved evaluation data and calculate some metrics for multiple episodes.
@@ -448,7 +448,7 @@ if __name__ == "__main__":
     """ Uncomment evaluate_agent() below to simulate the agent over multiple episodes and save the data at the end. """
     t_start = time.time()
     # Run evaluation with k parallel workers and n episodes
-    #evaluate_agent(MODEL_NAME, INITIAL_STATE, USE_SAFETY_FILTER, MAX_STEPS, episodes=40, num_workers=4)
+    evaluate_agent(MODEL_NAME, INITIAL_STATE, USE_SAFETY_FILTER, MAX_STEPS, episodes=200, num_workers=8)
     t_end = time.time()
 
     print()
