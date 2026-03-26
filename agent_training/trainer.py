@@ -8,6 +8,7 @@ import os
 import sys
 import time
 import datetime
+import subprocess
 
 # Add parent directory to path for imports (must be before local imports)
 _drl_repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -19,8 +20,10 @@ from stable_baselines3.common.vec_env import VecMonitor
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.logger import HParam
+
 from agent_training import environment as sat_env
-import subprocess
+from config.config import Config
+
 
 # Terminal colors
 RED_START = "\033[91m"
@@ -283,7 +286,7 @@ def create_or_load_model(env, continue_training, model_name, log_path):
         print(f"|-----{YELLOW_START}Loading existing model from: {latest_model_path}{COLOR_END}")
 
         try:
-            model = SAC.load(latest_model_path, device='cuda')
+            model = SAC.load(latest_model_path, device=Config.General.DEVICE)
             model.set_env(env) 
             print(f"|-----{GREEN_START}Successfully loaded existing model.{COLOR_END}")
             print(f"|-----Previous total timesteps: {model.num_timesteps}")
@@ -309,7 +312,7 @@ def create_or_load_model(env, continue_training, model_name, log_path):
     # Create new model if not loading existing one
     if not continue_training or not os.path.exists(latest_model_path):
         print(f"|-----{YELLOW_START}Creating new model from scratch...{COLOR_END}")
-        model = SAC("MlpPolicy", env, learning_rate=1e-4, buffer_size=1_000_000, learning_starts=10_000, batch_size=256, gradient_steps=-1, verbose=1, device='cuda',
+        model = SAC("MlpPolicy", env, learning_rate=1e-4, buffer_size=1_000_000, learning_starts=10_000, batch_size=256, gradient_steps=-1, verbose=1, device=Config.General.DEVICE,
                     tensorboard_log=log_path, ent_coef='auto')  # Use absolute path for consistency
         
     return model, save_path, latest_model_path
@@ -386,36 +389,3 @@ def save_model(model, model_name, save_latest=True):
     if save_latest:
         print(f"|-------Latest: {latest_replay_path}")
     print(f"|-------Backup: {backup_path_replay}")
-
-
-if __name__ == "__main__":
-    # Training configuration
-    CONTINUE_TRAINING = True  # Set to True to load existing model, False for fresh start
-    MODEL_NAME = "sac_test"  # Base name for saved models
-    TRAINING_TIMESTEPS = 10_000  # Number of timesteps per training session
-    CHECK_FREQ = 500  # Frequency of callback checks every CHECK_FREQ timesteps
-    SAVE_INTERVAL = 100_000  # Model backup saved after every SAVE_INTERVAL timesteps
-
-    # Create the training environment
-    env = create_environment(MODEL_NAME)
-
-    # Create or load the agent model
-    model, save_path, latest_model_path = create_or_load_model(env, CONTINUE_TRAINING, MODEL_NAME, log_path=log_path)
-    
-    # Monitor training progress in TensorBoard
-    tensorboard_process = start_tensorboard()
-    
-    # Train the agent model
-    model = train_agent(model, TRAINING_TIMESTEPS, CHECK_FREQ, SAVE_INTERVAL, MODEL_NAME)
-
-    # Save the trained model
-    save_model(model, MODEL_NAME)
-
-    # Stop TensorBoard server on ctrl+C
-    try:
-        print("|")
-        print(f"|---{YELLOW_START}Press Ctrl+C to stop the TensorBoard server.{COLOR_END}")
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        stop_tensorboard(tensorboard_process)
