@@ -1,0 +1,44 @@
+{
+    "training": {
+        "SCHEDULE_FILE_NAME": "test.json",
+        "CONTINUE_TRAINING": false,
+        "USE_SAFETY_FILTER": 0,
+        "MODEL_NAME": "test_noFilterCPU"
+    },
+
+    "evaluation": {
+        "MODEL_NAME": "best_model_latest",
+        "USE_SAFETY_FILTER": 0,
+        "MAX_STEPS": 3000,
+        "MIN_INITIAL_ERROR_ANGLE": 0.0,
+        "MAX_INITIAL_ERROR_ANGLE": 90.0,
+        "MIN_INITIAL_ANGULAR_VELOCITY": 0.0,
+        "MAX_INITIAL_ANGULAR_VELOCITY": 0.01,
+        "MIN_HALF_ANGLE_KOZ": 0.0,
+        "MAX_HALF_ANGLE_KOZ": 0.0
+    },
+
+    "visualization": {
+        "MODEL_NAME": "best_model_latest",
+        "USE_SAFETY_FILTER": 0,
+        "MAX_STEPS": 3000,
+        "MIN_INITIAL_ERROR_ANGLE": 0.0,
+        "MAX_INITIAL_ERROR_ANGLE": 90.0,
+        "MIN_INITIAL_ANGULAR_VELOCITY": 0.0,
+        "MAX_INITIAL_ANGULAR_VELOCITY": 0.01,
+        "MIN_HALF_ANGLE_KOZ": 0.0,
+        "MAX_HALF_ANGLE_KOZ": 0.0,
+        "CREATE_VIDEO": false
+    },
+
+    "env_simulator": {
+        "MAX_STEPS": 3000,
+        "MIN_INITIAL_ERROR_ANGLE": 0.0,
+        "MAX_INITIAL_ERROR_ANGLE": 90.0,
+        "MIN_INITIAL_ANGULAR_VELOCITY": 0.0,
+        "MAX_INITIAL_ANGULAR_VELOCITY": 0.01,
+        "MIN_HALF_ANGLE_KOZ": 0.0,
+        "MAX_HALF_ANGLE_KOZ": 0.0
+    }
+}
+
