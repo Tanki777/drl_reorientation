@@ -40,7 +40,7 @@ def load_agent(model_name: str):
     model_path = f"models/{model_name}.zip"
     if not os.path.exists(model_path):
         raise FileNotFoundError(f"Model file not found: {model_path}")
-    model = SAC.load(model_path, device="cuda")
+    model = SAC.load(model_path, device=Config.General.DEVICE)
     return model
 
 

@@ -1,9 +1,13 @@
 {
+    "general": {
+        "DEVICE": "cpu"
+    },
+
     "training": {
+        "MODEL_NAME": "test_noFilterCPU",
         "SCHEDULE_FILE_NAME": "test.json",
         "CONTINUE_TRAINING": false,
-        "USE_SAFETY_FILTER": 0,
-        "MODEL_NAME": "test_noFilterCPU"
+        "USE_SAFETY_FILTER": 0
     },
 
     "evaluation": {

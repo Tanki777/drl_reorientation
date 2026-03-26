@@ -8,6 +8,7 @@ import os
 import sys
 import time
 import datetime
+import subprocess
 
 # Add parent directory to path for imports (must be before local imports)
 _drl_repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -19,8 +20,10 @@ from stable_baselines3.common.vec_env import VecMonitor
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.logger import HParam
+
 from agent_training import environment as sat_env
-import subprocess
+from config.config import Config
+
 
 # Terminal colors
 RED_START = "\033[91m"
@@ -283,7 +286,7 @@ def create_or_load_model(env, continue_training, model_name, log_path):
         print(f"|-----{YELLOW_START}Loading existing model from: {latest_model_path}{COLOR_END}")
 
         try:
-            model = SAC.load(latest_model_path, device='cpu')
+            model = SAC.load(latest_model_path, device=Config.General.DEVICE)
             model.set_env(env) 
             print(f"|-----{GREEN_START}Successfully loaded existing model.{COLOR_END}")
             print(f"|-----Previous total timesteps: {model.num_timesteps}")
@@ -309,7 +312,7 @@ def create_or_load_model(env, continue_training, model_name, log_path):
     # Create new model if not loading existing one
     if not continue_training or not os.path.exists(latest_model_path):
         print(f"|-----{YELLOW_START}Creating new model from scratch...{COLOR_END}")
-        model = SAC("MlpPolicy", env, learning_rate=1e-4, buffer_size=1_000_000, learning_starts=10_000, batch_size=256, gradient_steps=-1, verbose=1, device='cpu',
+        model = SAC("MlpPolicy", env, learning_rate=1e-4, buffer_size=1_000_000, learning_starts=10_000, batch_size=256, gradient_steps=-1, verbose=1, device=Config.General.DEVICE,
                     tensorboard_log=log_path, ent_coef='auto')  # Use absolute path for consistency
         
     return model, save_path, latest_model_path

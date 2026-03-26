@@ -16,6 +16,10 @@ class Config():
     """
     Config class to hold all configuration parameters for training, evaluation, visualization, and environment simulation.
     """
+
+    class General():
+        DEVICE = config_data["general"]["DEVICE"]
+
     class Training():
         SCHEDULE_FILE_NAME = config_data["training"]["SCHEDULE_FILE_NAME"]
         CONTINUE_TRAINING = config_data["training"]["CONTINUE_TRAINING"]
