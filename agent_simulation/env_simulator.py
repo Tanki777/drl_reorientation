@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 import matplotlib
 
 from agent_training.environment import SatDynEnv, scale_torque, scale_angular_velocity_sat, scale_angular_velocity_wheels
+from config.config import Config
 
 def create_simulation_env(initial_state):
     """
@@ -294,7 +295,15 @@ if __name__ == "__main__":
     # Set the torques in action_schedule()
 
     # [min_initial_angle, max_initial_angle, min_initial_angular_velocity, max_initial_angular_velocity, max_steps, min_half_angle_koz, max_half_angle_koz]
-    INITIAL_STATE = [90.0, 90.0, 0.0, 0.0, 2000, 20.0, 20.0] 
+    INITIAL_STATE = [
+        Config.EnvSimulator.MIN_INITIAL_ERROR_ANGLE,
+        Config.EnvSimulator.MAX_INITIAL_ERROR_ANGLE,
+        Config.EnvSimulator.MIN_INITIAL_ANGULAR_VELOCITY,
+        Config.EnvSimulator.MAX_INITIAL_ANGULAR_VELOCITY,
+        Config.EnvSimulator.MAX_STEPS,
+        Config.EnvSimulator.MIN_HALF_ANGLE_KOZ,
+        Config.EnvSimulator.MAX_HALF_ANGLE_KOZ
+    ] 
     env = create_simulation_env(INITIAL_STATE)
     simulation_data = start_simulation(env)
     plot_actual_attitude(simulation_data)

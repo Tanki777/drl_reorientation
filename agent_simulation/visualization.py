@@ -29,7 +29,8 @@ if not os.path.exists(video_dir):
 
 from agent_training.environment import SatDynEnv, scale_torque, scale_angular_velocity_sat, scale_margin_koz
 from agent_training.constants import dt
-from agent_simulation.evaluation import load_evaluation_data, create_evaluation_env, load_agent
+from agent_simulation.evaluation import create_evaluation_env, load_agent
+from config.config import Config
 
 
 def simulate_agent(model: SAC, eval_env: SatDynEnv, max_steps: int, model_name: str, create_video: bool = False):
@@ -535,19 +536,23 @@ def plot_for_report(simulation_data: dict, time_end=300):
 
 ### MAIN ###
 if __name__ == "__main__":
-    MODEL_NAME = "phase1_best1_ph2_sfty2_11100000"
-    model = load_agent(MODEL_NAME)
-    MAX_STEPS = 3000
-
+   
     # Set initial state for evaluation environment
-    INITIAL_STATE = [80.0, 180.0, 0.00, 0.01, MAX_STEPS, 15.0, 30.0]  # [min_initial_angle, max_initial_angle, min_initial_angular_velocity, max_initial_angular_velocity]
-    CREATE_VIDEO = False  # Set to True to create a video of the simulation (will be saved in the "videos" directory)
-    USE_SAFETY_FILTER = 2  # 0: no filter, 1: filter applied, 2: train with filter
+    INITIAL_STATE = [
+        Config.Visualization.MIN_INITIAL_ERROR_ANGLE,
+        Config.Visualization.MAX_INITIAL_ERROR_ANGLE,
+        Config.Visualization.MIN_INITIAL_ANGULAR_VELOCITY,
+        Config.Visualization.MAX_INITIAL_ANGULAR_VELOCITY,
+        Config.Visualization.MAX_STEPS,
+        Config.Visualization.MIN_HALF_ANGLE_KOZ,
+        Config.Visualization.MAX_HALF_ANGLE_KOZ
+    ]
 
-    eval_env = create_evaluation_env(INITIAL_STATE, USE_SAFETY_FILTER)
+    eval_env = create_evaluation_env(INITIAL_STATE, Config.Visualization.USE_SAFETY_FILTER)
+    model = load_agent(Config.Visualization.MODEL_NAME)
 
     """ Uncomment the lines below to run 1 simulation and plot the results. """
-    #simulation_data = simulate_agent(model, eval_env, MAX_STEPS, MODEL_NAME, create_video=CREATE_VIDEO)
+    #simulation_data = simulate_agent(model, eval_env, Config.Visualization.MAX_STEPS, Config.Visualization.MODEL_NAME, create_video=Config.Visualization.CREATE_VIDEO)
     #plot_actual_attitude(simulation_data)
     #plot_for_report(simulation_data, time_end=300)
 

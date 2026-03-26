@@ -17,6 +17,7 @@ from stable_baselines3 import SAC
 
 from agent_training.constants import dt
 from agent_training.environment import SatDynEnv, scale_torque, scale_angular_velocity_sat, scale_margin_koz
+from config.config import Config
 
 parent_dir = os.path.dirname(os.path.abspath(__file__))
 repo_dir = os.path.dirname(parent_dir)
@@ -433,12 +434,17 @@ def load_evaluation_data(file_name: str):
 
 ### MAIN ###
 if __name__ == "__main__":
-    MODEL_NAME = "test_noFilterCPU_latest"
-    MAX_STEPS = 3000
 
     # Set initial state for evaluation environment
-    INITIAL_STATE = [0.0, 90.0, 0.00, 0.01, MAX_STEPS, 0.0, 0.0]  # [min_initial_angle, max_initial_angle, min_initial_angular_velocity, max_initial_angular_velocity]
-    USE_SAFETY_FILTER = 1  # 0: no filter, 1: filter applied, 2: train with filter
+    INITIAL_STATE = [
+        Config.Evaluation.MIN_INITIAL_ERROR_ANGLE,
+        Config.Evaluation.MAX_INITIAL_ERROR_ANGLE,
+        Config.Evaluation.MIN_INITIAL_ANGULAR_VELOCITY,
+        Config.Evaluation.MAX_INITIAL_ANGULAR_VELOCITY,
+        Config.Evaluation.MAX_STEPS,
+        Config.Evaluation.MIN_HALF_ANGLE_KOZ,
+        Config.Evaluation.MAX_HALF_ANGLE_KOZ
+    ]
 
     """ Uncomment the lines below to load saved evaluation data and calculate some metrics for multiple episodes.
     """
@@ -447,8 +453,8 @@ if __name__ == "__main__":
    
     """ Uncomment evaluate_agent() below to simulate the agent over multiple episodes and save the data at the end. """
     t_start = time.time()
-    # Run evaluation with k parallel workers and n episodes
-    evaluate_agent(MODEL_NAME, INITIAL_STATE, USE_SAFETY_FILTER, MAX_STEPS, episodes=200, num_workers=8)
+    # Run evaluation with possibly parallel workers and a defined number of episodes
+    evaluate_agent(Config.Evaluation.MODEL_NAME, INITIAL_STATE, Config.Evaluation.USE_SAFETY_FILTER, Config.Evaluation.MAX_STEPS, episodes=200, num_workers=8)
     t_end = time.time()
 
     print()
