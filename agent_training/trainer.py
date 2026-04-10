@@ -16,7 +16,7 @@ if _drl_repo_dir not in sys.path:
     sys.path.insert(0, _drl_repo_dir)
 
 from stable_baselines3 import SAC
-from stable_baselines3.common.vec_env import VecMonitor
+from stable_baselines3.common.vec_env import VecMonitor, SubprocVecEnv, DummyVecEnv
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.logger import HParam
@@ -217,10 +217,10 @@ def create_environment(model_name, initial_state=None, phase_name=None, use_safe
     # Create vectorized environment with 16 parallel instances
     if initial_state is not None:
         # Need to use a lambda to pass initial_state parameter
-        env = make_vec_env(lambda: sat_env.SatDynEnv(initial_state=initial_state, use_safety_filter=use_safety_filter), n_envs=16)
+        env = make_vec_env(lambda: sat_env.SatDynEnv(initial_state=initial_state, use_safety_filter=use_safety_filter), n_envs=10, vec_env_cls=DummyVecEnv)
 
     else:
-        env = make_vec_env(sat_env.SatDynEnv, n_envs=16)
+        env = make_vec_env(sat_env.SatDynEnv, n_envs=10, vec_env_cls=DummyVecEnv)
     
     # If phase name is available, use it in the monitor log filename
     if phase_name:
