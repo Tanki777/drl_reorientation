@@ -264,12 +264,18 @@ def create_or_load_model(env, continue_training, model_name, log_path):
         save_path: Path where the model will be saved
         latest_model_path: Path to the latest saved model
     """
-    # Ensure the directory exists
+    # Ensure the directories exist
     if not os.path.exists(models_path):
         os.makedirs(models_path)
 
+    if not os.path.exists(os.path.join(models_path, model_name)):
+        os.makedirs(os.path.join(models_path, model_name))
+
     if not os.path.exists(replay_buffer_path):
         os.makedirs(replay_buffer_path)
+
+    if not os.path.exists(os.path.join(replay_buffer_path, model_name)):
+        os.makedirs(os.path.join(replay_buffer_path, model_name))
 
     # Setting the path to save the model
     save_path = os.path.join(models_path, model_name)
@@ -365,11 +371,13 @@ def save_model(model, model_name, save_latest=True):
     print(f"|---{YELLOW_START}Saving improved model...{COLOR_END}")
     
     # Save model backup
-    backup_path = os.path.join(models_path, f"{model_name}_{model.num_timesteps}")
+    _model_path = os.path.join(models_path, model_name)
+    backup_path = os.path.join(_model_path, f"{model_name}_{model.num_timesteps}")
     model.save(backup_path)
 
     # Save replay buffer
-    backup_path_replay = os.path.join(replay_buffer_path, f"{model_name}_{model.num_timesteps}")
+    _replay_path = os.path.join(replay_buffer_path, model_name)
+    backup_path_replay = os.path.join(_replay_path, f"{model_name}_{model.num_timesteps}")
     model.save_replay_buffer(backup_path_replay)
     
     if save_latest:
