@@ -213,10 +213,16 @@ def reward_function(state, agent_action, safe_action, use_safety_filter, phase):
         use_safety_filter: Flag indicating whether the safety filter is being used.
     """
     q0_current = state[0]
+    ang_vel_sat_x = state[4]
+    ang_vel_sat_y = state[5]
+    ang_vel_sat_z = state[6]
     q0_prev = state[10]  
     torque_1 = state[14]
     torque_2 = state[15]
     torque_3 = state[16]
+    torque_1_prev = state[17]
+    torque_2_prev = state[18]
+    torque_3_prev = state[19]
     margin_koz = state[20]
     
     # Clamp q0 values to [-1, 1] to prevent acos() domain errors (NaN) with large torques
@@ -230,18 +236,133 @@ def reward_function(state, agent_action, safe_action, use_safety_filter, phase):
     err_phi_current = err_phi_current * 180.0 / np.pi
     err_phi_prev = err_phi_prev * 180.0 / np.pi
 
-    # Reward for reducing attitude error
-    r1 = (err_phi_prev - err_phi_current)  # positive if error decreased
+    r_total = 0
+    USE_REWARD = "rewMod3"
+    
+    if USE_REWARD == "paper1":
+        # Reward for reducing attitude error
+        #r1 = (err_phi_prev - err_phi_current)  # positive if error decreased
 
-    # Bonus for high accuracy
-    r3 = 0.0
-    if err_phi_current <= 0.25:
-        r3 = 0.01  # bonus for reaching the goal
-    else:
-        r3 = -0.01
+        # Penalty for high angular velocity (more than 0.1 rad/s)
+        r2 = 0.0
+        if ang_vel_sat_x > 0.1 or ang_vel_sat_y > 0.1 or ang_vel_sat_z > 0.1:
+            r2 = -1
 
-    # Penalty for using large torques
-    r4 = - 1.0*(abs(torque_1)+abs(torque_2)+abs(torque_3))
+        # Reward for reducing attitude error and pointing accuracy
+        r3 = 0.0
+        if err_phi_current < 0.25:
+            r3 = 1
+        else:
+            r3 = 0.5 * (1 - ((err_phi_current-0.25)/180.0)**0.6)
+
+        # Penalty for using large torques
+        r4 = - 1.0*(abs(torque_1)+abs(torque_2)+abs(torque_3))
+
+        r_total = r2 + r3 + r4
+
+    if USE_REWARD == "yang":
+        r_err = np.exp(-err_phi_current/(0.14*360))
+        r_torque = -0.05 * np.sqrt(torque_1**2 + torque_2**2 + torque_3**2)/scale_torque_norm - 0.005 * (np.sqrt((torque_1-torque_1_prev)**2 + (torque_2-torque_2_prev)**2 + (torque_3-torque_3_prev)**2))
+        r_acc = 0
+        if err_phi_current <= 0.25:
+            r_acc = 9
+
+        r_direction = 0
+        if err_phi_current > err_phi_prev:
+            r_direction = -1
+
+        r_total = r_err + r_torque + r_acc + r_direction
+
+    if USE_REWARD == "yangMod1":
+        r_err = np.exp(-err_phi_current/(0.14*360))
+        #r_torque = -0.05 * np.sqrt(torque_1**2 + torque_2**2 + torque_3**2)/scale_torque_norm - 0.005 * (np.sqrt((torque_1-torque_1_prev)**2 + (torque_2-torque_2_prev)**2 + (torque_3-torque_3_prev)**2))
+        r_acc = 0
+        if err_phi_current <= 0.25:
+            r_acc = 9
+
+        r_direction = 0
+        if err_phi_current > err_phi_prev:
+            r_direction = -1
+
+        r_total = r_err + r_acc + r_direction
+
+    if USE_REWARD == "prak":
+        # Reward for reducing attitude error
+        r1 = (err_phi_prev - err_phi_current)  # positive if error decreased
+
+        # Bonus for high accuracy
+        r3 = 0.0
+        if err_phi_current <= 0.25:
+            r3 = 0.01  # bonus for reaching the goal
+        else:
+            r3 = -0.01
+
+        # Penalty for using large torques
+        r4 = - 1.0*(abs(torque_1)+abs(torque_2)+abs(torque_3))
+
+        r_total = r1 + r3 + r4
+
+    if USE_REWARD == "prakX5":
+        # Reward for reducing attitude error
+        r1 = (err_phi_prev - err_phi_current)  # positive if error decreased
+
+        # Bonus for high accuracy
+        r3 = 0.0
+        if err_phi_current <= 0.25:
+            r3 = 0.01  # bonus for reaching the goal
+        else:
+            r3 = -0.01
+
+        # Penalty for using large torques
+        r4 = - 1.0*(abs(torque_1)+abs(torque_2)+abs(torque_3))
+
+        r_total = 5*(r1 + r3 + r4)
+
+    if USE_REWARD == "rewMod1":
+        # Reward for reducing attitude error
+        r1 = (err_phi_prev - err_phi_current)  # positive if error decreased
+
+        # Bonus for high accuracy
+        r3 = 0.0
+        if err_phi_current < 0.25:
+            r3 = 1  # bonus for reaching the goal
+        else:
+            r3 = -0.1
+
+        # Penalty for using large torques
+        #r4 = - 1.0*(abs(torque_1)+abs(torque_2)+abs(torque_3))
+
+        r_total = r1 + r3
+
+    if USE_REWARD == "rewMod2":
+        # Reward for reducing attitude error
+        r1 = (err_phi_prev - err_phi_current)  # positive if error decreased
+
+        # Bonus for high accuracy
+        r3 = 0.0
+        if err_phi_current < 0.25:
+            r3 = math.exp(-10.0*err_phi_current)
+
+        # Penalty for using large torques
+        #r4 = - 1.0*(abs(torque_1)+abs(torque_2)+abs(torque_3))
+
+        r_total = r1 + r3
+
+    if USE_REWARD == "rewMod3":
+        ang_vel_sat_norm = np.sqrt(ang_vel_sat_x**2 + ang_vel_sat_y**2 + ang_vel_sat_z**2) # rad/s
+
+        # Reward for reducing attitude error
+        r1 = (err_phi_prev - err_phi_current)  # positive if error decreased
+
+        # Bonus for high accuracy
+        r3 = 0.0
+        if err_phi_current < 0.25 and ang_vel_sat_norm < 0.001:
+            r3 = 2
+        elif err_phi_current < 0.25:
+            r3 = 0.5
+        
+
+        r_total = r1 + r3
 
     # Penalty for entering / being close to keep out zone
     r5 = 0.0
@@ -256,7 +377,7 @@ def reward_function(state, agent_action, safe_action, use_safety_filter, phase):
     if use_safety_filter == 2:
         r6 = - (abs(safe_action[0]-agent_action[0]) + abs(safe_action[1]-agent_action[1]) + abs(safe_action[2]-agent_action[2]))
 
-    return r1 + r3 + r4 + r5 + r6
+    return r_total + r5 + r6
 
 
 class SatDynEnv(gym.Env):
