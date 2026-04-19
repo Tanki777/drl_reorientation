@@ -177,8 +177,6 @@ def evaluate_agent(model_name: str, initial_state: list, use_safety_filter: int,
     """
     import multiprocessing as mp
     
-    timestamp = time.time()
-    
     # Divide episodes among workers
     episodes_per_worker = episodes // num_workers
     remaining_episodes = episodes % num_workers
@@ -230,7 +228,8 @@ def evaluate_agent(model_name: str, initial_state: list, use_safety_filter: int,
     cnts_koz_violations_array = np.array(cnts_koz_violations)
 
     # Save episode data
-    save_path = os.path.join(eval_data_dir, f"evaluation_{timestamp}.npz")
+    time_iso = time.strftime("%Y-%m-%d-%H-%M-%S")
+    save_path = os.path.join(eval_data_dir, f"{model_name}_{initial_state}_filter[{use_safety_filter}]_ep[{episodes}]_{time_iso}.npz")
     np.savez(save_path, data=np.array(simulation_data), dtype=object)
 
     # Print results
@@ -448,13 +447,13 @@ if __name__ == "__main__":
 
     """ Uncomment the lines below to load saved evaluation data and calculate some metrics for multiple episodes.
     """
-    #loaded = load_evaluation_data("evaluation_test.npz")
-    #calc_metrics(loaded)
+    loaded = load_evaluation_data("rewMod3_sched4_latest_[0.0, 5.0, 0.0, 0.01, 600, 0.0, 0.0]_filter[0]_ep[1000]_2026-04-10-18-41-34.npz")
+    calc_metrics(loaded)
    
     """ Uncomment evaluate_agent() below to simulate the agent over multiple episodes and save the data at the end. """
     t_start = time.time()
     # Run evaluation with possibly parallel workers and a defined number of episodes
-    evaluate_agent(Config.Evaluation.MODEL_NAME, INITIAL_STATE, Config.Evaluation.USE_SAFETY_FILTER, Config.Evaluation.MAX_STEPS, episodes=200, num_workers=8)
+    #evaluate_agent(Config.Evaluation.MODEL_NAME, INITIAL_STATE, Config.Evaluation.USE_SAFETY_FILTER, Config.Evaluation.MAX_STEPS, episodes=1000, num_workers=8)
     t_end = time.time()
 
     print()

@@ -94,7 +94,7 @@ def create_model_metadata(model_name, schedule):
     # Create meta header
     metadata = {
         "model_name": model_name,
-        "schedule_name": schedule.get("schedule_name", ""),
+        "schedule_name": schedule.get("name", ""),
     }
 
     # Parse phases from schedule
