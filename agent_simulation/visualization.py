@@ -27,7 +27,7 @@ video_dir = os.path.join(repo_parent_dir, "videos")
 if not os.path.exists(video_dir):
     os.makedirs(video_dir)
 
-from agent_training.environment import SatDynEnv, scale_torque, scale_angular_velocity_sat, scale_margin_koz
+from agent_training.environment import SatDynEnv, SatThrusterEnv, scale_torque, scale_angular_velocity_sat, scale_margin_koz
 from agent_training.constants import dt
 from agent_simulation.evaluation import create_evaluation_env, load_agent
 from config.config import Config
@@ -68,7 +68,7 @@ def simulate_agent(model: SAC, eval_env: SatDynEnv, max_steps: int, model_name: 
         # Step the environment
         obs, reward, done, truncated, info = eval_env.step(action_agent) # action_filtered is the filter output if applied, else same as action_agent
 
-        torques.append(eval_env.action_filtered.copy())
+        torques.append(action_agent)
         rewards.append(reward)
         
         # Render the environment and store the frame for video
@@ -110,7 +110,8 @@ def simulate_agent(model: SAC, eval_env: SatDynEnv, max_steps: int, model_name: 
         "times": times,
         "normal_vector_koz": normal_vector_koz,
         "half_angle_koz": half_angle_koz,
-        "margin_angles_koz": states_array[:, 20]*scale_margin_koz*180/np.pi,
+        # "margin_angles_koz": states_array[:, 20]*scale_margin_koz*180/np.pi,
+        "margin_angles_koz": torques_array[:,0],
         "min_margin_koz": min_margin_koz,
         "cnt_Koz_violations": cnt_Koz_violations
         }
@@ -549,11 +550,11 @@ if __name__ == "__main__":
     ]
 
     eval_env = create_evaluation_env(INITIAL_STATE, Config.Visualization.USE_SAFETY_FILTER)
-    model = load_agent(Config.Visualization.MODEL_NAME)
+    model = load_agent(Config.Visualization.MODEL_NAME, Config.Visualization.TIMESTEP, seed_random = True)
 
     """ Uncomment the lines below to run 1 simulation and plot the results. """
-    #simulation_data = simulate_agent(model, eval_env, Config.Visualization.MAX_STEPS, Config.Visualization.MODEL_NAME, create_video=Config.Visualization.CREATE_VIDEO)
-    #plot_actual_attitude(simulation_data)
+    simulation_data = simulate_agent(model, eval_env, Config.Visualization.MAX_STEPS, Config.Visualization.MODEL_NAME, create_video=Config.Visualization.CREATE_VIDEO)
+    plot_actual_attitude(simulation_data)
     #plot_for_report(simulation_data, time_end=300)
 
     """ Uncomment the lines below if you have saved evaluation data (from evaluate_agent()) to load all the episodes.
