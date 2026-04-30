@@ -4,18 +4,19 @@
     },
 
     "training": {
-        "MODEL_NAME": "test_noFilterCPU",
-        "SCHEDULE_FILE_NAME": "test.json",
+        "MODEL_NAME": "rewPrak_envThrust_sched_180",
+        "SCHEDULE_FILE_NAME": "sched_180.json",
         "CONTINUE_TRAINING": false,
         "USE_SAFETY_FILTER": 0
     },
 
     "evaluation": {
-        "MODEL_NAME": "best_model_latest",
+        "MODEL_NAME": "rewYang_sched_180",
+        "TIMESTEP": 1200000,
         "USE_SAFETY_FILTER": 0,
         "MAX_STEPS": 3000,
         "MIN_INITIAL_ERROR_ANGLE": 0.0,
-        "MAX_INITIAL_ERROR_ANGLE": 90.0,
+        "MAX_INITIAL_ERROR_ANGLE": 180.0,
         "MIN_INITIAL_ANGULAR_VELOCITY": 0.0,
         "MAX_INITIAL_ANGULAR_VELOCITY": 0.01,
         "MIN_HALF_ANGLE_KOZ": 0.0,
@@ -23,11 +24,12 @@
     },
 
     "visualization": {
-        "MODEL_NAME": "best_model_latest",
+        "MODEL_NAME": "rewPrak_envThrust_sched_180",
+        "TIMESTEP": 6000000,
         "USE_SAFETY_FILTER": 0,
-        "MAX_STEPS": 3000,
+        "MAX_STEPS": 1000,
         "MIN_INITIAL_ERROR_ANGLE": 0.0,
-        "MAX_INITIAL_ERROR_ANGLE": 90.0,
+        "MAX_INITIAL_ERROR_ANGLE": 180.0,
         "MIN_INITIAL_ANGULAR_VELOCITY": 0.0,
         "MAX_INITIAL_ANGULAR_VELOCITY": 0.01,
         "MIN_HALF_ANGLE_KOZ": 0.0,
