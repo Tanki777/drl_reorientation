@@ -7,6 +7,7 @@ import numpy as np
 import time
 import os
 import sys
+import random
 
 # Add parent directory to path for imports (must be before local imports)
 _drl_repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -16,7 +17,7 @@ if _drl_repo_dir not in sys.path:
 from stable_baselines3 import SAC
 
 from agent_training.constants import dt
-from agent_training.environment import SatDynEnv, scale_torque, scale_angular_velocity_sat, scale_margin_koz
+from agent_training.environment import SatDynEnv, SatThrusterEnv, scale_torque, scale_angular_velocity_sat, scale_margin_koz
 from config.config import Config
 
 parent_dir = os.path.dirname(os.path.abspath(__file__))
@@ -29,18 +30,28 @@ if not os.path.exists(eval_data_dir):
     os.makedirs(eval_data_dir)
 
 
-def load_agent(model_name: str):
+def load_agent(model_name: str, timestep: int, seed_random: bool = False):
     """
     Load the agent to visualize.
     Args:
         model_name: Name of the model file (without .zip extension).
+        timestep: Timestep for evaluation.
     Returns:
         model: The loaded SAC model.
     """
-    model_path = f"models/{model_name}.zip"
+    model_path = f"models/{model_name}/{model_name}_{timestep}.zip"
     if not os.path.exists(model_path):
         raise FileNotFoundError(f"Model file not found: {model_path}")
     model = SAC.load(model_path, device=Config.General.DEVICE)
+
+    if seed_random:
+        random.seed(time.time())
+        np.random.seed(int(time.time()))
+        seed_rng = random.randint(0, 1000000000)
+        #model.set_random_seed(seed_rng)
+        model.action_space.seed(seed_rng)
+        print(f"Model loaded with random seed: {seed_rng}")
+
     return model
 
 
@@ -53,16 +64,17 @@ def create_evaluation_env(initial_state, use_safety_filter):
     Returns:
         eval_env: The created evaluation environment.
     """
-    eval_env = SatDynEnv(render_mode="rgb_array", initial_state=initial_state, use_safety_filter=use_safety_filter)
+    eval_env = SatThrusterEnv(render_mode="rgb_array", initial_state=initial_state, use_safety_filter=use_safety_filter)
     return eval_env
 
 
-def evaluate_agent_worker(model_name: str, initial_state: list, use_safety_filter: int, max_steps: int, episodes: int, worker_id: int):
+def evaluate_agent_worker(model_name: str, timestep: int, initial_state: list, use_safety_filter: int, max_steps: int, episodes: int, worker_id: int):
     """
     Worker function to evaluate agent for a subset of episodes.
     This function will be run in parallel by multiple processes.
     Args:
         model_name: Name of the model file (without .zip extension).
+        timestep: Timestep for evaluation.
         initial_state: Initial state configuration for environment.
         use_safety_filter: Safety filter mode.
         max_steps: Maximum steps per episode.
@@ -72,7 +84,7 @@ def evaluate_agent_worker(model_name: str, initial_state: list, use_safety_filte
         Dictionary containing evaluation results.
     """
     # Load model in worker process
-    model = load_agent(model_name)
+    model = load_agent(model_name, timestep)
     
     # Create environment in worker process
     eval_env = create_evaluation_env(initial_state, use_safety_filter)
@@ -164,11 +176,12 @@ def evaluate_agent_worker(model_name: str, initial_state: list, use_safety_filte
     }
 
 
-def evaluate_agent(model_name: str, initial_state: list, use_safety_filter: int, max_steps: int, episodes: int, num_workers: int = 4):
+def evaluate_agent(model_name: str, timestep: int, initial_state: list, use_safety_filter: int, max_steps: int, episodes: int, num_workers: int = 4):
     """
     Simulate the agent in parallel using multiple processes and saves the data at the end.
     Args:
         model_name: Name of the model file (without .zip extension).
+        timestep: Timestep for evaluation.
         initial_state: Initial state configuration for environment.
         use_safety_filter: Safety filter mode.
         max_steps: Maximum steps per episode.
@@ -197,7 +210,7 @@ def evaluate_agent(model_name: str, initial_state: list, use_safety_filter: int,
         for worker_id in range(num_workers):
             result = pool.apply_async(
                 evaluate_agent_worker,
-                args=(model_name, initial_state, use_safety_filter, max_steps, episode_counts[worker_id], worker_id)
+                args=(model_name, timestep, initial_state, use_safety_filter, max_steps, episode_counts[worker_id], worker_id)
             )
             results.append(result)
         
@@ -229,7 +242,7 @@ def evaluate_agent(model_name: str, initial_state: list, use_safety_filter: int,
 
     # Save episode data
     time_iso = time.strftime("%Y-%m-%d-%H-%M-%S")
-    save_path = os.path.join(eval_data_dir, f"{model_name}_{initial_state}_filter[{use_safety_filter}]_ep[{episodes}]_{time_iso}.npz")
+    save_path = os.path.join(eval_data_dir, f"{model_name}_{timestep}_{initial_state}_filter[{use_safety_filter}]_ep[{episodes}]_{time_iso}.npz")
     np.savez(save_path, data=np.array(simulation_data), dtype=object)
 
     # Print results
@@ -447,13 +460,13 @@ if __name__ == "__main__":
 
     """ Uncomment the lines below to load saved evaluation data and calculate some metrics for multiple episodes.
     """
-    loaded = load_evaluation_data("rewMod3_sched4_latest_[0.0, 5.0, 0.0, 0.01, 600, 0.0, 0.0]_filter[0]_ep[1000]_2026-04-10-18-41-34.npz")
-    calc_metrics(loaded)
+    #loaded = load_evaluation_data("rewPrak_sched_180_2_7400000_[0.0, 180.0, 0.0, 0.01, 3000, 0.0, 0.0]_filter[0]_ep[1000]_2026-04-24-06-35-37.npz")
+    #calc_metrics(loaded)
    
     """ Uncomment evaluate_agent() below to simulate the agent over multiple episodes and save the data at the end. """
     t_start = time.time()
     # Run evaluation with possibly parallel workers and a defined number of episodes
-    #evaluate_agent(Config.Evaluation.MODEL_NAME, INITIAL_STATE, Config.Evaluation.USE_SAFETY_FILTER, Config.Evaluation.MAX_STEPS, episodes=1000, num_workers=8)
+    evaluate_agent(Config.Evaluation.MODEL_NAME, Config.Evaluation.TIMESTEP, INITIAL_STATE, Config.Evaluation.USE_SAFETY_FILTER, Config.Evaluation.MAX_STEPS, episodes=1000, num_workers=8)
     t_end = time.time()
 
     print()
