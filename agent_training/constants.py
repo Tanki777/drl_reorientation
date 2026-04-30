@@ -9,6 +9,13 @@ Modified by: Cemal Yilmaz - 2026
 import numpy as np
 
 ### PHYSICAL PARAMETERS
+J_yang = np.array([[60.0, 5.0, 1.0],
+          [5.0, 50.0, 2.0],
+          [1.0, 2.0, 70.0]],
+          np.float32)
+
+u_max_yang = 2.0 # Nm
+
 J_b = np.diag([0.1672, 0.1259, 0.06121])  # Body's moment of inertia (no wheels) [kg·m²] (diagonal 3x3)
 
 J_w = 0.00001722  # One wheel's moment of inertia [kg·m²]
@@ -93,7 +100,9 @@ def get_constants(): # Returns a dictionary with all constants needed by the saf
         # Physical parameters (for reference)
         'J_tot': J_tot,
         'A': A,
-        'J_w': Jw_matrix
+        'J_w': Jw_matrix,
+        "J_yang": J_yang,
+        "u_max_yang": u_max_yang
     }
     
     return constants
