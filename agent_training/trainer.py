@@ -217,10 +217,10 @@ def create_environment(model_name, initial_state=None, phase_name=None, use_safe
     # Create vectorized environment with 16 parallel instances
     if initial_state is not None:
         # Need to use a lambda to pass initial_state parameter
-        env = make_vec_env(lambda: sat_env.SatDynEnv(initial_state=initial_state, use_safety_filter=use_safety_filter), n_envs=10, vec_env_cls=DummyVecEnv)
+        env = make_vec_env(lambda: sat_env.SatThrusterEnv(initial_state=initial_state, use_safety_filter=use_safety_filter), n_envs=8, vec_env_cls=DummyVecEnv)
 
     else:
-        env = make_vec_env(sat_env.SatDynEnv, n_envs=10, vec_env_cls=DummyVecEnv)
+        env = make_vec_env(sat_env.SatThrusterEnv, n_envs=8, vec_env_cls=DummyVecEnv)
     
     # If phase name is available, use it in the monitor log filename
     if phase_name:
@@ -319,7 +319,7 @@ def create_or_load_model(env, continue_training, model_name, log_path):
     if not continue_training or not os.path.exists(latest_model_path):
         print(f"|-----{YELLOW_START}Creating new model from scratch...{COLOR_END}")
         model = SAC("MlpPolicy", env, learning_rate=1e-4, buffer_size=1_000_000, learning_starts=10_000, batch_size=256, gradient_steps=-1, verbose=1, device=Config.General.DEVICE,
-                    tensorboard_log=log_path, ent_coef='auto')  # Use absolute path for consistency
+                    tensorboard_log=log_path, ent_coef='auto', seed=1000)  # Use absolute path for consistency
         
     return model, save_path, latest_model_path
 
